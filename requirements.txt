@@ -1,0 +1,6 @@
+Plaintext
+
+streamlit
+pdfplumber
+pandas
+requests
