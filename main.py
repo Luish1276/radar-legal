@@ -1,10 +1,3 @@
-import streamlit as st
-import pdfplumber
-import pandas as pd
-import requests
-from io import BytesIO
-from datetime import datetime
-
 st.set_page_config(page_title="Radar Legal CR", layout="wide", page_icon="⚖️")
 
 # Estilo personalizado para mejorar la visibilidad
