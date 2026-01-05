@@ -1,94 +1,85 @@
 import streamlit as st
 import pdfplumber
 import pandas as pd
-import requests
 from io import BytesIO
 from datetime import datetime
 
 # 1. Configuración de la página
-st.set_page_config(page_title="Radar Legal - Cobros", layout="wide", page_icon="⚖️")
+st.set_page_config(page_title="Radar Legal - Modo Local", layout="wide", page_icon="⚖️")
 
-st.title("⚖️ Radar Legal: Especialista en Cobro Judicial")
-st.markdown("---")
+st.title("⚖️ Radar Legal: Modo de Procesamiento Local")
+st.info("Cargue el PDF una vez y explore los hallazgos en cada pestaña.")
 
-# --- MOTOR DE BÚSQUEDA MEJORADO ---
-def buscar_en_archivo_detallado(contenido_pdf, palabras_clave):
+# --- MOTOR DE BÚSQUEDA ---
+def procesar_pdf(contenido_pdf, palabras_clave):
     try:
         with pdfplumber.open(BytesIO(contenido_pdf)) as pdf:
             resultados = []
             for i, pagina in enumerate(pdf.pages):
                 texto = pagina.extract_text()
                 if texto:
-                    # Dividimos el texto por párrafos (usualmente doble salto de línea o puntos y aparte)
-                    parrafos = texto.split('\n') 
-                    for p_num, parrafo in enumerate(parrafos):
+                    parrafos = texto.split('\n')
+                    for parrafo in parrafos:
                         for palabra in palabras_clave:
                             if palabra.strip() and palabra.lower() in parrafo.lower():
-                                # Capturamos el párrafo completo donde está la palabra
                                 resultados.append({
                                     "Página": i + 1,
                                     "Criterio": palabra,
-                                    "NOTIFICACIÓN COMPLETA": parrafo.strip()
+                                    "DETALLE COMPLETO": parrafo.strip()
                                 })
-            return pd.DataFrame(resultados), None
+            return pd.DataFrame(resultados)
     except Exception as e:
-        return None, f"Error: {str(e)}"
+        st.error(f"Error al leer el archivo: {e}")
+        return pd.DataFrame()
 
-# --- BARRA LATERAL ---
-st.sidebar.header("📅 Consulta de Boletines")
-fecha_consulta = st.sidebar.date_input("Fecha:", datetime.now())
-dia, mes, anio = fecha_consulta.strftime("%d"), fecha_consulta.strftime("%m"), fecha_consulta.strftime("%Y")
-url_boletin = f"https://www.imprentanacional.go.cr/boletin/?date={dia}/{mes}/{anio}"
+# --- BARRA LATERAL: CARGA ÚNICA ---
+st.sidebar.header("📂 Entrada de Datos")
+archivo_principal = st.sidebar.file_uploader("Suba el Boletín del día aquí:", type="pdf")
 
-# --- PESTAÑAS REDEFINIDAS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🏛️ Remates", "💰 Cobro Judicial/Embargos", "🚗 Lesiones Tránsito", "🔍 Rastrear Cliente/Cédula", "📂 Analizar PDF Propio"
+if archivo_principal:
+    st.sidebar.success("✅ PDF cargado correctamente")
+    datos_pdf = archivo_principal.getvalue()
+else:
+    st.sidebar.warning("⚠️ Por favor, suba un PDF para comenzar.")
+
+# --- PESTAÑAS ---
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🏛️ Remates", "💰 Cobro Judicial/Embargos", "🚗 Lesiones Tránsito", "🔍 Rastrear Cliente"
 ])
 
-def ejecutar_busqueda_url(lista, titulo):
-    with st.spinner(f"Analizando {titulo}..."):
-        try:
-            r = requests.get(url_boletin, timeout=15)
-            if r.status_code != 200 or b'%PDF' not in r.content[:100]:
-                st.info(f"No hay boletín disponible en el servidor para el {dia}/{mes}/{anio}.")
-                return
-            
-            df, err = buscar_en_archivo_detallado(r.content, lista)
-            if df is not None and not df.empty:
-                st.success(f"¡Hallazgos encontrados en {titulo}!")
-                # Ajustamos el diseño para que el texto largo se vea bien
-                st.dataframe(df, use_container_width=True, height=500)
+# Lógica compartida para pestañas
+def mostrar_resultados(lista_palabras, nombre_seccion):
+    if archivo_principal:
+        with st.spinner(f"Escaneando {nombre_seccion}..."):
+            df = procesar_pdf(datos_pdf, lista_palabras)
+            if not df.empty:
+                st.success(f"Se encontraron {len(df)} registros en {nombre_seccion}")
+                st.dataframe(df, use_container_width=True, height=400)
             else:
-                st.warning(f"No se encontró información de {titulo}.")
-        except:
-            st.error("Error de conexión con la Imprenta.")
+                st.warning(f"No se encontró información de {nombre_seccion} en este archivo.")
+    else:
+        st.error("Primero debe subir el PDF en la barra lateral izquierda.")
 
 with tab1:
-    if st.button("Buscar Remates"): 
-        ejecutar_busqueda_url(["Remate", "Primer remate", "Finca"], "Remates")
+    st.subheader("Búsqueda de Remates Judiciales")
+    if st.button("Ejecutar Análisis de Remates"):
+        mostrar_resultados(["Remate", "Primer remate", "Finca", "Plano"], "Remates")
 
 with tab2:
-    if st.button("Buscar Cobros y Embargos"):
-        # Términos específicos de cobro judicial
-        ejecutar_busqueda_url(["Cobro Judicial", "Embargo", "Decretado", "Mandamiento"], "Cobro Judicial")
+    st.subheader("Análisis de Cobro y Embargos")
+    if st.button("Ejecutar Análisis de Cobro"):
+        mostrar_resultados(["Cobro Judicial", "Embargo", "Decretado", "Mandamiento", "Monitorio"], "Cobro Judicial")
 
 with tab3:
-    if st.button("Buscar Lesiones"): 
-        ejecutar_busqueda_url(["Lesiones culposas", "Tránsito"], "Lesiones")
+    st.subheader("Casos de Tránsito / Lesiones")
+    if st.button("Ejecutar Análisis de Lesiones"):
+        mostrar_resultados(["Lesiones culposas", "Tránsito", "Boleta", "Colisión"], "Lesiones")
 
 with tab4:
-    cliente = st.text_input("Ingrese Cédula o Nombre Completo:")
-    if st.button("Ejecutar Rastreo"):
-        if cliente: ejecutar_busqueda_url([cliente], f"Cliente: {cliente}")
-
-with tab5:
-    st.subheader("📂 Analizador de PDFs Descargados")
-    archivo = st.file_uploader("Suba el PDF de la sección que descargó (Remates, Avisos, etc.)", type="pdf")
-    buscar_lo_siguiente = st.text_input("Palabra o cédula a buscar:")
-    if archivo and st.button("Escanear Documento"):
-        df_l, err_l = buscar_en_archivo_detallado(archivo.getvalue(), [buscar_lo_siguiente])
-        if df_l is not None and not df_l.empty:
-            st.success("Información encontrada:")
-            st.table(df_l) # Usamos tabla para que el texto sea más legible aún
+    st.subheader("Búsqueda Específica de Cliente")
+    cliente = st.text_input("Ingrese nombre o cédula del cliente:")
+    if st.button("Buscar Cliente en el PDF"):
+        if cliente:
+            mostrar_resultados([cliente], f"Cliente: {cliente}")
         else:
-            st.warning("No se encontró el dato en este archivo.")
+            st.error("Debe ingresar un nombre o cédula.")
