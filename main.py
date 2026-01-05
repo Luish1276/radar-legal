@@ -7,7 +7,7 @@ import re
 import os
 
 # 1. CONFIGURACIÓN
-st.set_page_config(page_title="Radar Legal: Especialista en Defensa", layout="wide", page_icon="⚖️")
+st.set_page_config(page_title="Radar Legal: Analista Pro", layout="wide", page_icon="⚖️")
 
 DB_FILE = "historial_defensas.csv"
 
@@ -21,38 +21,27 @@ def guardar_en_historial(df):
     df_f.to_csv(DB_FILE, index=False)
     return len(df)
 
-# --- MOTOR DE INTELIGENCIA CORREGIDO ---
-def analizar_defensa_real(texto):
-    # 1. Extraer Expediente
+# --- MOTOR DE INTELIGENCIA ---
+def analizar_bloque(texto, es_expediente_completo=False):
     exp_match = re.search(r'\d{2}-\d{6}-\d{4}-[A-Z]{2}', texto)
     expediente = exp_match.group(0) if exp_match else "S/N"
     
-    # 2. Clasificación Crítica: ¿Es basura de remate o es oportunidad?
-    palabras_remate = ["remate", "almoneda", "postores", "finca", "plano catastrado", "carrocería", "cilindrada"]
-    es_remate = any(p in texto.lower() for p in palabras_remate)
-    tipo = "🚨 REMATE (Ya ejecutado)" if es_remate else "🛡️ EMPLAZAMIENTO (Oportunidad)"
-    
-    # 3. Extracción de Fecha de Resolución (Evitando años de carros)
-    # Buscamos años de resoluciones probables (entre 2010 y 2025) que NO estén cerca de "Modelo" o "Año"
+    # Si es un expediente judicial completo, buscamos la fecha más reciente de gestión útil
+    # Si es de La Gaceta, buscamos la fecha del auto
     anio_actual = datetime.now().year
     anios_encontrados = re.findall(r'20\d{2}', texto)
     
-    anio_resolucion = None
-    for a in anios_encontrados:
-        val = int(a)
-        # Filtro: Si el texto cercano dice "año", "modelo" o "cilindrada", ignoramos ese 2018 o 2020
-        if 2010 <= val <= anio_actual:
-            # Una lógica simple: la fecha de la resolución suele ser la primera o la última mencionada lejos de datos técnicos
-            anio_resolucion = val
-            break
+    anio_referencia = None
+    if anios_encontrados:
+        # En expedientes judiciales, nos interesa la fecha de la última resolución
+        # En La Gaceta, la fecha del auto de emplazamiento
+        validos = [int(a) for a in anios_encontrados if 2010 <= int(a) <= anio_actual]
+        if validos:
+            anio_referencia = min(validos) if not es_expediente_completo else max(validos)
 
-    # 4. Cálculo de Prescripción
     analisis, alerta, prob = "Sin fecha clara", "⚪", "N/A"
-    if anio_resolucion:
-        transcurrido = anio_actual - anio_resolucion
-        # Limpiamos el error de los 1000 años
-        if transcurrido > 30: transcurrido = 0 
-        
+    if anio_referencia:
+        transcurrido = anio_actual - anio_referencia
         if transcurrido >= 4:
             analisis, alerta, prob = f"🔥 POSIBLE PRESCRIPCIÓN ({transcurrido} años)", "🔴", "ALTA"
         elif transcurrido == 3:
@@ -64,60 +53,69 @@ def analizar_defensa_real(texto):
         "Fecha_Deteccion": datetime.now().strftime("%d/%m/%Y"),
         "Alerta": alerta,
         "Expediente": expediente,
-        "Tipo": tipo,
         "Análisis": analisis,
         "Probabilidad": prob,
         "Texto": texto[:1000]
     }
 
 # --- INTERFAZ ---
-st.title("⚖️ Radar Legal: Filtro de Defensa Profesional")
+st.title("⚖️ Radar Legal: Especialista en Defensa")
 
-if 'resultados' not in st.session_state: st.session_state['resultados'] = pd.DataFrame()
-
-st.sidebar.header("📂 Entrada")
-archivo = st.sidebar.file_uploader("Subir PDF:", type="pdf")
-
-tab1, tab2 = st.tabs(["🔍 Escaneo Inteligente", "📚 Historial de Oportunidades"])
+tab1, tab2 = st.tabs(["🔍 Escaneo de La Gaceta", "🔬 Analizar Expediente Judicial (PDF de Gestión)"])
 
 with tab1:
-    col_a, col_b = st.columns([1, 2])
-    with col_a:
-        ocultar_remates = st.checkbox("🚫 Ocultar Remates (Ver solo Emplazamientos)", value=True)
+    st.header("Buscador de Oportunidades en Edictos")
+    archivo_gaceta = st.file_uploader("Suba el PDF de La Gaceta:", type="pdf", key="gaceta")
     
-    if archivo and st.button("🚀 Iniciar Análisis"):
-        with pdfplumber.open(BytesIO(archivo.getvalue())) as pdf:
+    if archivo_gaceta and st.button("🚀 Escanear La Gaceta"):
+        with pdfplumber.open(BytesIO(archivo_gaceta.getvalue())) as pdf:
             hallazgos = []
             for pag in pdf.pages:
                 txt = pag.extract_text()
                 if txt:
-                    # Buscamos los bloques por expediente
-                    bloques = txt.split("EXP:") # La Gaceta suele separar así
+                    bloques = txt.split("EXP:")
                     for b in bloques:
                         if len(b) > 50:
-                            res = analizar_defensa_real(b)
-                            hallazgos.append(res)
-            st.session_state['resultados'] = pd.DataFrame(hallazgos)
-
-    df_viz = st.session_state['resultados']
-    if not df_viz.empty:
-        # Aplicar filtro de remates si el usuario quiere
-        if ocultar_remates:
-            df_viz = df_viz[df_viz['Tipo'].str.contains("EMPLAZAMIENTO")]
-
-        st.dataframe(df_viz[["Alerta", "Expediente", "Tipo", "Análisis", "Probabilidad"]], use_container_width=True)
-        
-        if st.button("💾 Guardar Oportunidades en Historial"):
-            op = df_viz[df_viz['Probabilidad'].isin(['ALTA', 'MEDIA'])]
-            guardar_en_historial(op)
-            st.success("Guardado en la biblioteca de casos.")
-
-        for _, r in df_viz.iterrows():
-            with st.expander(f"{r['Alerta']} {r['Expediente']} | {r['Tipo']}"):
-                st.text(r['Texto'])
+                            # Filtro anti-remates automático aquí
+                            if not any(p in b.lower() for p in ["remate", "carrocería", "finca"]):
+                                hallazgos.append(analizar_bloque(b))
+            
+            df_g = pd.DataFrame(hallazgos)
+            if not df_g.empty:
+                st.dataframe(df_g[["Alerta", "Expediente", "Análisis", "Probabilidad"]], use_container_width=True)
+                if st.button("💾 Guardar en mi Base de Datos"):
+                    guardar_en_historial(df_g[df_g['Probabilidad'].isin(['ALTA', 'MEDIA'])])
+                    st.success("Guardado.")
 
 with tab2:
+    st.header("Análisis de Expediente del Poder Judicial")
+    st.info("Suba aquí el PDF que descarga de 'Gestión en Línea' para calcular la prescripción de ese caso específico.")
+    
+    archivo_pj = st.file_uploader("Suba el PDF del Expediente Judicial:", type="pdf", key="pj")
+    
+    if archivo_pj and st.button("🔬 Analizar Movimientos"):
+        with pdfplumber.open(BytesIO(archivo_pj.getvalue())) as pdf:
+            todo_el_texto = ""
+            for pag in pdf.pages:
+                todo_el_texto += pag.extract_text() + "\n"
+            
+            # Analizamos el expediente como un todo
+            resultado = analizar_bloque(todo_el_texto, es_expediente_completo=True)
+            
+            st.subheader("Resultado del Análisis Forense:")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Expediente", resultado["Expediente"])
+            col2.metric("Estado de Prescripción", resultado["Análisis"])
+            col3.metric("Probabilidad de Éxito", resultado["Probabilidad"])
+            
+            with st.expander("Ver detalles del análisis"):
+                st.write("El sistema ha detectado las fechas de los movimientos y ha calculado el tiempo de inactividad o el plazo desde el auto principal.")
+                st.text(todo_el_texto[:1500] + "...")
+
+    st.markdown("---")
+    st.subheader("📚 Tus Casos Guardados")
     h = cargar_historial()
     if not h.empty:
-        st.table(h[["Fecha_Deteccion", "Alerta", "Expediente", "Análisis", "Probabilidad"]])
-    else: st.write("Historial vacío.")
+        st.dataframe(h[["Fecha_Deteccion", "Alerta", "Expediente", "Análisis", "Probabilidad"]], use_container_width=True)
+    else:
+        st.write("No hay casos en el historial aún.")
