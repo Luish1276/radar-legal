@@ -4,136 +4,142 @@ import pandas as pd
 from io import BytesIO
 from datetime import datetime
 import re
+import os
 
-# 1. Configuración de la plataforma
-st.set_page_config(page_title="Radar Legal: Sistema Integral", layout="wide", page_icon="⚖️")
+# 1. CONFIGURACIÓN DE PÁGINA
+st.set_page_config(page_title="Radar Legal: Inteligencia de Defensa", layout="wide", page_icon="⚖️")
 
-st.title("⚖️ Radar Legal: Defensa y Prescripción")
-st.markdown("---")
+# Archivo de Base de Datos Local
+DB_FILE = "historial_casos.csv"
 
-if 'pdf_data' not in st.session_state:
-    st.session_state['pdf_data'] = None
+# --- FUNCIONES DE BASE DE DATOS ---
+def cargar_historial():
+    if os.path.exists(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame(columns=["Fecha_Deteccion", "Alerta", "Expediente", "Análisis", "Probabilidad", "Fuente"])
+
+def guardar_en_historial(df_nuevos):
+    historial_actual = cargar_historial()
+    df_final = pd.concat([historial_actual, df_nuevos]).drop_duplicates(subset=['Expediente'], keep='last')
+    df_final.to_csv(DB_FILE, index=False)
+    return len(df_nuevos)
 
 # --- MOTOR DE INTELIGENCIA LEGAL ---
-def analizar_caso(texto, fuente="Gaceta"):
+def analizar_caso_detallado(texto):
     # Extraer Expediente
     exp_match = re.search(r'\d{2}-\d{6}-\d{4}-[A-Z]{2}', texto)
-    expediente = exp_match.group(0) if exp_match else "Desconocido"
+    expediente = exp_match.group(0) if exp_match else f"S/N-{datetime.now().microsecond}"
     
-    # Extraer Fechas (formato CR)
+    # Extraer Fechas
     fechas = re.findall(r'\d{2}/\d{2}/\d{4}|\d{2}-\d{2}-\d{4}', texto)
-    analisis = "Sin fechas suficientes"
-    alerta = "⚪"
-    probabilidad = "N/A"
+    analisis, alerta, prob = "Sin fechas detectadas", "⚪", "N/A"
 
-    if len(fechas) >= 1:
+    if fechas:
         try:
-            # En Edictos, la primera fecha suele ser el auto que se intenta notificar
             fecha_auto = datetime.strptime(fechas[0].replace('-', '/'), '%d/%m/%Y')
-            hoy = datetime.now()
-            anios = (hoy - fecha_auto).days / 365
+            anios = (datetime.now() - fecha_auto).days / 365
             
-            # Determinamos plazo según tipo de deuda
-            plazo_prescripcion = 10 if any(x in texto.lower() for x in ["hipotecaria", "prendaria"]) else 4
+            # Lógica de plazos: Hipotecario/Prendario 10 años, otros 4 años
+            plazo = 10 if any(x in texto.lower() for x in ["hipotecaria", "prendaria"]) else 4
             
-            if anios >= plazo_prescripcion:
-                analisis = f"🔥 POSIBLE PRESCRIPCIÓN: {int(anios)} años desde el auto original."
-                alerta = "🔴"
-                probabilidad = "ALTA"
-            elif anios >= (plazo_prescripcion - 1):
-                analisis = f"⚠️ ALERTA: {int(anios)} años. Próximo a prescribir."
-                alerta = "🟡"
-                probabilidad = "MEDIA"
+            if anios >= plazo:
+                analisis, alerta, prob = f"🔥 POSIBLE PRESCRIPCIÓN ({int(anios)} años)", "🔴", "ALTA"
+            elif anios >= (plazo - 1):
+                analisis, alerta, prob = f"⚠️ RIESGO PRÓXIMO ({int(anios)} años)", "🟡", "MEDIA"
             else:
-                analisis = f"✅ En plazo: {int(anios)} años transcurridos."
-                alerta = "🟢"
-                probabilidad = "BAJA"
-        except:
-            pass
+                analisis, alerta, prob = f"En plazo legal ({int(anios)} años)", "🟢", "BAJA"
+        except: pass
 
     return {
+        "Fecha_Deteccion": datetime.now().strftime("%d/%m/%Y"),
         "Alerta": alerta,
         "Expediente": expediente,
         "Análisis": analisis,
-        "Probabilidad": probabilidad,
-        "Extracto": texto[:600] + "..."
+        "Probabilidad": prob,
+        "Texto": texto[:1000] # Guardamos el bloque para lectura
     }
 
-# --- PROCESADOR DE ARCHIVOS ---
-def procesar_archivo(contenido, palabras_clave):
+# --- PROCESAMIENTO DE PDF ---
+def procesar_boletin(contenido_pdf, criterios, exclusiones):
     resultados = []
-    with pdfplumber.open(BytesIO(contenido)) as pdf:
+    with pdfplumber.open(BytesIO(contenido_pdf)) as pdf:
         for i, pagina in enumerate(pdf.pages):
-            texto = pagina.extract_text()
-            if texto:
-                lineas = texto.split('\n')
+            texto_pag = pagina.extract_text()
+            if texto_pag:
+                lineas = texto_pag.split('\n')
                 for idx, linea in enumerate(lineas):
-                    if any(p.lower() in linea.lower() for p in palabras_clave):
-                        # Captura extendida para encontrar fechas y nombres
-                        bloque = "\n".join(lineas[max(0, idx-3):idx+20])
-                        data = analizar_caso(bloque)
+                    if any(c.lower() in linea.lower() for c in criterios):
+                        # Evitar municipalidades si se solicita
+                        if any(exc.lower() in linea.lower() for exc in exclusiones):
+                            continue
+                        
+                        # Capturar bloque de contexto (18 líneas)
+                        bloque = "\n".join(lineas[max(0, idx-2):idx+16])
+                        data = analizar_caso_detallado(bloque)
                         data["Página"] = i + 1
                         resultados.append(data)
     return pd.DataFrame(resultados)
 
 # --- INTERFAZ DE USUARIO ---
-st.sidebar.header("📁 CARGA DE DOCUMENTOS")
-tipo_doc = st.sidebar.radio("Tipo de documento:", ["Boletín Judicial (Gaceta)", "Historial de Gestión en Línea"])
-archivo = st.sidebar.file_uploader("Subir PDF:", type="pdf")
+st.title("⚖️ Radar Legal Pro")
+st.markdown("---")
 
+if 'resultados_radar' not in st.session_state:
+    st.session_state['resultados_radar'] = pd.DataFrame()
+
+# Barra Lateral Independiente
+st.sidebar.header("📂 Carga de Documentos")
+archivo = st.sidebar.file_uploader("Subir PDF del Boletín Judicial:", type="pdf")
 if archivo:
-    st.session_state['pdf_data'] = archivo.getvalue()
-    st.sidebar.success("✅ Archivo cargado")
+    st.sidebar.success("✅ Documento cargado")
 
-tab1, tab2, tab3 = st.tabs(["🔍 Escaneo de Oportunidades", "📊 Base de Datos Excel", "📖 Manual de Uso"])
+# Pestañas de Trabajo
+tab1, tab2, tab3 = st.tabs(["🔍 Análisis de Oportunidades", "📚 Historial de Prescripciones", "⚙️ Configuración"])
 
 with tab1:
-    if st.session_state['pdf_data']:
-        st.subheader(f"Analizando: {tipo_doc}")
-        
-        # Ajustamos búsqueda según tipo de documento
-        if tipo_doc == "Boletín Judicial (Gaceta)":
-            criterios = ["hace saber", "emplaza", "notifica", "notifíquese", "remate", "subasta"]
-        else:
-            criterios = ["demanda", "decreto", "embargo", "notificación"]
-
-        if st.button("🚀 INICIAR RADAR"):
-            df = procesar_archivo(st.session_state['pdf_data'], criterios)
-            if not df.empty:
-                st.session_state['resultados_radar'] = df
-                # Mostrar semáforo de casos
-                st.dataframe(df[["Alerta", "Expediente", "Análisis", "Probabilidad"]], use_container_width=True)
+    st.subheader("Buscador de Edictos y Notificaciones")
+    if archivo:
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🚀 Iniciar Escaneo de Prescripciones"):
+                # Criterios específicos para encontrar deudores no notificados o remates viejos
+                criterios_busqueda = ["hace saber", "emplaza", "notifica", "remate", "subasta", "continuar sin oferentes"]
+                excluir_temas = ["municipalidad", "municipal", "patentes"]
                 
-                for _, row in df.iterrows():
-                    with st.expander(f"{row['Alerta']} EXP: {row['Expediente']} | {row['Probabilidad']}"):
-                        st.text(row['Extracto'])
-            else:
-                st.warning("No se detectaron patrones de interés en este archivo.")
+                df = procesar_boletin(archivo.getvalue(), criterios_busqueda, excluir_temas)
+                st.session_state['resultados_radar'] = df
+        
+        if not st.session_state['resultados_radar'].empty:
+            df_res = st.session_state['resultados_radar']
+            st.dataframe(df_res[["Alerta", "Expediente", "Análisis", "Probabilidad", "Página"]], use_container_width=True)
+            
+            if st.button("💾 Guardar casos rojos y amarillos en Historial"):
+                # Solo guardamos los que tienen potencial
+                para_guardar = df_res[df_res['Probabilidad'].isin(['ALTA', 'MEDIA'])]
+                count = guardar_en_historial(para_guardar)
+                st.success(f"Se han archivado {count} expedientes con potencial de defensa.")
+                st.balloons()
+            
+            for _, row in df_res.iterrows():
+                with st.expander(f"{row['Alerta']} EXP: {row['Expediente']} | {row['Análisis']}"):
+                    st.text(row['Texto'])
     else:
-        st.info("👈 Cargue un archivo en la barra lateral para empezar.")
+        st.info("Suba un archivo PDF en el panel de la izquierda para comenzar el rastreo.")
 
 with tab2:
-    if 'resultados_radar' in st.session_state:
-        df_descarga = st.session_state['resultados_radar']
-        st.subheader("Reporte de Hallazgos para el Despacho")
-        st.write("Este archivo contiene los expedientes detectados y su análisis de prescripción.")
+    st.subheader("📚 Biblioteca de Expedientes Ganables")
+    historial = cargar_historial()
+    
+    if not historial.empty:
+        st.write("Estos son los casos que has detectado en días anteriores:")
+        st.table(historial[["Fecha_Deteccion", "Alerta", "Expediente", "Análisis", "Probabilidad"]])
         
-        csv = df_descarga.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Descargar para Excel (.csv)",
-            data=csv,
-            file_name=f"radar_legal_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime='text/csv'
-        )
+        csv = historial.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Descargar Base de Datos (CSV)", data=csv, file_name="historial_radar_legal.csv", mime="text/csv")
     else:
-        st.write("No hay datos para exportar aún.")
+        st.write("Tu archivo histórico está vacío. Guarda hallazgos desde la pestaña de Escaneo.")
 
 with tab3:
-    st.markdown("""
-    ### Cómo usar tu Radar Legal:
-    1. **Edictos (La Gaceta):** Sube el PDF de 'Notificaciones' o 'Remates'. El Radar buscará casos donde el auto es viejo pero la notificación es nueva. **¡Esas son tus defensas de prescripción!**
-    2. **Gestión en Línea:** Sube el historial que descargas del Poder Judicial. El Radar buscará la fecha del último movimiento relevante.
-    3. **Semáforo:** * 🔴 **Rojo:** Altísima probabilidad de ganar por prescripción.
-       * 🟡 **Amarillo:** Caso en riesgo, revisar pronto.
-       * 🟢 **Verde:** Caso activo y en plazo.
-    """)
+    st.subheader("⚙️ Configuración del Radar")
+    st.text_input("Nombre del Despacho:", "Radar Legal")
+    st.write("Versión del Sistema: 2.0 (Filtros de Prescripción Activados)")
