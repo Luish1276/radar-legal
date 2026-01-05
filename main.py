@@ -20,7 +20,6 @@ def buscar_en_archivo(contenido_pdf, palabras_clave):
                 texto = pagina.extract_text()
                 if texto:
                     for palabra in palabras_clave:
-                        # Limpiamos espacios y verificamos que no esté vacío
                         p = palabra.strip()
                         if p and p.lower() in texto.lower():
                             inicio = max(0, texto.lower().find(p.lower()) - 100)
@@ -35,7 +34,7 @@ def buscar_en_archivo(contenido_pdf, palabras_clave):
     except Exception as e:
         return None, f"Error al leer el PDF: {str(e)}"
 
-# --- BARRA LATERAL (Para boletines automáticos) ---
+# --- BARRA LATERAL ---
 st.sidebar.header("📅 Boletín de la Imprenta")
 fecha_consulta = st.sidebar.date_input("Seleccione fecha:", datetime.now())
 dia, mes, anio = fecha_consulta.strftime("%d"), fecha_consulta.strftime("%m"), fecha_consulta.strftime("%Y")
@@ -46,7 +45,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🏛️ Remates", "🚗 Lesiones", "⚖️ Prescripciones", "🔍 Consulta Cliente", "📂 Analizar PDF Propio"
 ])
 
-# Función para búsquedas automáticas (Tabs 1-4)
 def ejecutar_busqueda_url(lista):
     with st.spinner("Buscando en la Imprenta..."):
         try:
@@ -71,7 +69,6 @@ with tab4:
     cliente = st.text_input("Nombre o Cédula (Automático):")
     if st.button("Rastrear en la Imprenta"): ejecutar_busqueda_url([cliente])
 
-# --- MEJORA EN LA PESTAÑA 5: ANALIZADOR DE ARCHIVOS PROPIOS ---
 with tab5:
     st.subheader("📂 Analizador de Boletines y Documentos Locales")
     st.write("Use esta pestaña para escanear archivos que ya descargó o boletines de años anteriores.")
@@ -88,10 +85,7 @@ with tab5:
         if st.button("🚀 Iniciar Escaneo de Archivo"):
             with st.spinner("Escaneando documento..."):
                 bytes_data = archivo_subido.getvalue()
-                
-                # Creamos la lista de búsqueda combinando cédula y otras palabras
                 lista_busqueda = [cedula_local, otras_palabras]
-                # Filtramos para quitar espacios vacíos
                 lista_busqueda = [x for x in lista_busqueda if x.strip()]
                 
                 df_local, error_local = buscar_en_archivo(bytes_data, lista_busqueda)
@@ -103,4 +97,3 @@ with tab5:
                     st.dataframe(df_local, use_container_width=True)
                 else:
                     st.warning("No se encontró la cédula ni las palabras clave en este archivo.")
-¿Qué agregamos nuevo?
