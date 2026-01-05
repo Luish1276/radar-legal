@@ -4,13 +4,20 @@ import pandas as pd
 from io import BytesIO
 
 # 1. Configuración de la página
-st.set_page_config(page_title="Radar Legal - Cobros", layout="wide", page_icon="⚖️")
+st.set_page_config(page_title="Radar Legal Pro", layout="wide", page_icon="⚖️")
 
-st.title("⚖️ Radar Legal: Especialista en Cobro Judicial")
-st.info("Cargue el PDF y el sistema extraerá la información completa del edicto.")
+st.title("⚖️ Radar Legal: Cobro Judicial y Subastas")
 
-# --- MOTOR DE BÚSQUEDA ROBUSTO ---
-def procesar_pdf_detallado(contenido_pdf, palabras_clave):
+# --- LÓGICA DE MEMORIA (Session State) ---
+# Esto permite que el PDF subido persista entre pestañas
+if 'pdf_data' not in st.session_state:
+    st.session_state['pdf_data'] = None
+
+# --- MOTOR DE BÚSQUEDA CON FILTROS DE EXCLUSIÓN ---
+def procesar_pdf_profesional(contenido_pdf, palabras_clave, excluir=None):
+    if excluir is None:
+        excluir = []
+    
     try:
         with pdfplumber.open(BytesIO(contenido_pdf)) as pdf:
             resultados = []
@@ -21,65 +28,74 @@ def procesar_pdf_detallado(contenido_pdf, palabras_clave):
                     for index, linea in enumerate(lineas):
                         for palabra in palabras_clave:
                             if palabra.strip() and palabra.lower() in linea.lower():
-                                # CAPTURA DE CONTEXTO: Tomamos la línea donde está la palabra 
-                                # + las 15 líneas siguientes para no perder el detalle del remate
-                                inicio = index
+                                # Verificamos si hay palabras prohibidas (como 'Municipalidad')
+                                contexto_breve = linea.lower()
+                                if any(exc.lower() in contexto_breve for exc in excluir):
+                                    continue # Salta este hallazgo si es municipal
+                                
+                                # Si pasa el filtro, capturamos el bloque de 18 líneas
+                                inicio = max(0, index - 2) # Un par de líneas antes para contexto
                                 fin = min(len(lineas), index + 16)
-                                bloque_completo = "\n".join(lineas[inicio:fin])
+                                bloque = "\n".join(lineas[inicio:fin])
                                 
                                 resultados.append({
                                     "Página": i + 1,
-                                    "Criterio": palabra,
-                                    "EDICTO / NOTIFICACIÓN COMPLETA": bloque_completo
+                                    "Hallazgo": palabra,
+                                    "CONTENIDO DEL EDICTO": bloque
                                 })
             return pd.DataFrame(resultados)
     except Exception as e:
-        st.error(f"Error técnico: {e}")
+        st.error(f"Error: {e}")
         return pd.DataFrame()
 
-# --- BARRA LATERAL ---
-st.sidebar.header("📂 Entrada de Datos")
-archivo_principal = st.sidebar.file_uploader("Suba el PDF aquí:", type="pdf")
+# --- BARRA LATERAL: CARGA ÚNICA ---
+st.sidebar.header("📂 Archivo del Día")
+archivo_subido = st.sidebar.file_uploader("Suba el PDF aquí (una sola vez):", type="pdf")
 
-if archivo_principal:
-    datos_pdf = archivo_principal.getvalue()
-    st.sidebar.success("✅ Archivo listo")
+if archivo_subido:
+    st.session_state['pdf_data'] = archivo_subido.getvalue()
+    st.sidebar.success("✅ PDF cargado y listo para todas las pestañas.")
 else:
-    st.sidebar.warning("⚠️ Suba un PDF para comenzar.")
+    st.sidebar.warning("⚠️ Esperando archivo...")
 
 # --- PESTAÑAS ---
 tab1, tab2, tab3, tab4 = st.tabs([
-    "🏛️ Remates", "💰 Cobro Judicial/Embargos", "🚗 Lesiones Tránsito", "🔍 Rastrear Cliente"
+    "🏛️ Remates y Subastas", "💰 Cobro Judicial (No Municipal)", "🚗 Tránsito", "🔍 Cliente Específico"
 ])
 
-def mostrar_hallazgos(lista, seccion):
-    if archivo_principal:
-        df = procesar_pdf_detallado(datos_pdf, lista)
+def mostrar_seccion(keywords, titulo, exclusiones=None):
+    if st.session_state['pdf_data'] is not None:
+        df = procesar_pdf_profesional(st.session_state['pdf_data'], keywords, exclusiones)
         if not df.empty:
-            st.success(f"Hallazgos en {seccion}:")
-            # Usamos st.table para que el texto largo no se corte y sea fácil de leer
-            for idx, row in df.iterrows():
-                with st.expander(f"📍 Página {row['Página']} - Coincidencia: {row['Criterio']}"):
-                    st.text(row['EDICTO / NOTIFICACIÓN COMPLETA'])
-                    st.markdown("---")
+            st.success(f"Se encontraron {len(df)} coincidencias en {titulo}")
+            for _, row in df.iterrows():
+                with st.expander(f"📄 Página {row['Página']} | Detectado: {row['Hallazgo']}"):
+                    st.text(row['CONTENIDO DEL EDICTO'])
         else:
-            st.warning(f"No se encontró nada relacionado a {seccion}.")
+            st.warning(f"No hay resultados para {titulo} en este archivo.")
     else:
-        st.error("Suba el archivo en la izquierda.")
+        st.info("Por favor, suba un PDF en la barra lateral para ver los datos.")
 
 with tab1:
-    if st.button("Analizar Remates"):
-        mostrar_hallazgos(["Remate", "Primer remate", "continuar sin oferentes", "señalan las"], "Remates")
+    # Agregamos 'Subasta' y términos relacionados con fechas de remate
+    if st.button("Ver Remates y Subastas"):
+        mostrar_seccion(["Remate", "Subasta", "continuar sin oferentes", "señalan las"], "Remates")
 
 with tab2:
-    if st.button("Analizar Cobros"):
-        mostrar_hallazgos(["Cobro Judicial", "Embargo", "Decretado", "Mandamiento"], "Cobros")
+    # Filtramos explícitamente lo Municipal
+    if st.button("Ver Cobros Judiciales"):
+        mostrar_seccion(
+            ["Cobro Judicial", "Embargo", "Decretado", "Mandamiento", "Monitorio"], 
+            "Cobros", 
+            excluciones=["Municipalidad", "Municipal", "Patentes", "Impuestos municipales"]
+        )
 
 with tab3:
-    if st.button("Analizar Tránsito"):
-        mostrar_hallazgos(["Lesiones culposas", "Tránsito"], "Tránsito")
+    if st.button("Ver Tránsito"):
+        mostrar_seccion(["Lesiones culposas", "Tránsito", "Colisión"], "Tránsito")
 
 with tab4:
-    cliente = st.text_input("Nombre o Cédula:")
-    if st.button("Buscar en PDF"):
-        if cliente: mostrar_hallazgos([cliente], f"Cliente: {cliente}")
+    cliente = st.text_input("Cédula o Nombre:")
+    if st.button("Rastrear"):
+        if cliente:
+            mostrar_seccion([cliente], f"Cliente: {cliente}")
