@@ -9,14 +9,14 @@ st.set_page_config(page_title="Radar Legal Pro", layout="wide", page_icon="⚖�
 st.title("⚖️ Radar Legal: Cobro Judicial y Subastas")
 
 # --- LÓGICA DE MEMORIA (Session State) ---
-# Esto permite que el PDF subido persista entre pestañas
 if 'pdf_data' not in st.session_state:
     st.session_state['pdf_data'] = None
 
 # --- MOTOR DE BÚSQUEDA CON FILTROS DE EXCLUSIÓN ---
-def procesar_pdf_profesional(contenido_pdf, palabras_clave, excluir=None):
-    if excluir is None:
-        excluir = []
+def procesar_pdf_profesional(contenido_pdf, palabras_clave, exclusiones=None):
+    # Aquí corregí el nombre de la variable para que coincida siempre
+    if exclusiones is None:
+        exclusiones = []
     
     try:
         with pdfplumber.open(BytesIO(contenido_pdf)) as pdf:
@@ -28,13 +28,13 @@ def procesar_pdf_profesional(contenido_pdf, palabras_clave, excluir=None):
                     for index, linea in enumerate(lineas):
                         for palabra in palabras_clave:
                             if palabra.strip() and palabra.lower() in linea.lower():
-                                # Verificamos si hay palabras prohibidas (como 'Municipalidad')
+                                # FILTRO DE EXCLUSIÓN
                                 contexto_breve = linea.lower()
-                                if any(exc.lower() in contexto_breve for exc in excluir):
-                                    continue # Salta este hallazgo si es municipal
+                                if any(exc.lower() in contexto_breve for exc in exclusiones):
+                                    continue 
                                 
-                                # Si pasa el filtro, capturamos el bloque de 18 líneas
-                                inicio = max(0, index - 2) # Un par de líneas antes para contexto
+                                # CAPTURA DE BLOQUE
+                                inicio = max(0, index - 2)
                                 fin = min(len(lineas), index + 16)
                                 bloque = "\n".join(lineas[inicio:fin])
                                 
@@ -48,13 +48,13 @@ def procesar_pdf_profesional(contenido_pdf, palabras_clave, excluir=None):
         st.error(f"Error: {e}")
         return pd.DataFrame()
 
-# --- BARRA LATERAL: CARGA ÚNICA ---
+# --- BARRA LATERAL ---
 st.sidebar.header("📂 Archivo del Día")
 archivo_subido = st.sidebar.file_uploader("Suba el PDF aquí (una sola vez):", type="pdf")
 
 if archivo_subido:
     st.session_state['pdf_data'] = archivo_subido.getvalue()
-    st.sidebar.success("✅ PDF cargado y listo para todas las pestañas.")
+    st.sidebar.success("✅ PDF cargado y listo.")
 else:
     st.sidebar.warning("⚠️ Esperando archivo...")
 
@@ -63,9 +63,10 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "🏛️ Remates y Subastas", "💰 Cobro Judicial (No Municipal)", "🚗 Tránsito", "🔍 Cliente Específico"
 ])
 
-def mostrar_seccion(keywords, titulo, exclusiones=None):
+def mostrar_seccion(keywords, titulo, lista_exclusiones=None):
     if st.session_state['pdf_data'] is not None:
-        df = procesar_pdf_profesional(st.session_state['pdf_data'], keywords, exclusiones)
+        # Llamamos a la función con el nombre correcto
+        df = procesar_pdf_profesional(st.session_state['pdf_data'], keywords, exclusiones=lista_exclusiones)
         if not df.empty:
             st.success(f"Se encontraron {len(df)} coincidencias en {titulo}")
             for _, row in df.iterrows():
@@ -74,20 +75,19 @@ def mostrar_seccion(keywords, titulo, exclusiones=None):
         else:
             st.warning(f"No hay resultados para {titulo} en este archivo.")
     else:
-        st.info("Por favor, suba un PDF en la barra lateral para ver los datos.")
+        st.info("Por favor, suba un PDF en la barra lateral.")
 
 with tab1:
-    # Agregamos 'Subasta' y términos relacionados con fechas de remate
     if st.button("Ver Remates y Subastas"):
         mostrar_seccion(["Remate", "Subasta", "continuar sin oferentes", "señalan las"], "Remates")
 
 with tab2:
-    # Filtramos explícitamente lo Municipal
     if st.button("Ver Cobros Judiciales"):
+        # Corregido: 'excluciones' -> 'lista_exclusiones'
         mostrar_seccion(
             ["Cobro Judicial", "Embargo", "Decretado", "Mandamiento", "Monitorio"], 
             "Cobros", 
-            excluciones=["Municipalidad", "Municipal", "Patentes", "Impuestos municipales"]
+            lista_exclusiones=["Municipalidad", "Municipal", "Patentes", "Impuestos municipales"]
         )
 
 with tab3:
