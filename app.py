@@ -13,10 +13,11 @@ archivo = "OBITER.xlsx"
 if os.path.exists(archivo):
     df = pd.read_excel(archivo)
     
-    # --- INDICADORES RÁPIDOS (Resumen arriba) ---
+    # --- INDICADORES RÁPIDOS ---
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Expedientes", len(df))
     
+    # Verificar si existen columnas inteligentes
     if 'Estado_Procesal' in df.columns:
         riesgos = len(df[df['Estado_Procesal'].str.contains("🚩", na=False)])
         col2.metric("Alertas de Usura", riesgos)
@@ -26,7 +27,6 @@ if os.path.exists(archivo):
     st.write("### 🔍 Análisis Detallado de Deudas")
     
     # --- TABLA INTELIGENTE ---
-    # Aquí configuramos qué columnas se ven y que los links funcionen
     st.dataframe(
         df, 
         column_config={
@@ -38,9 +38,13 @@ if os.path.exists(archivo):
         use_container_width=True
     )
 
-    # Botón para que tú descargues el reporte en tu PC
-    st.download_button(
-        label="📥 Descargar Base de Datos Completa",
-        data=open(archivo, "rb"),
-        file_name="Reporte_Radar_Legal.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # --- BOTÓN DE DESCARGA ---
+    with open(archivo, "rb") as file:
+        st.download_button(
+            label="📥 Descargar Base de Datos Completa",
+            data=file,
+            file_name="Reporte_Radar_Legal.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+else:
+    st.warning("⚠️ Esperando el archivo OBITER.xlsx. Ejecuta 'python main.py' en la terminal.")
