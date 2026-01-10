@@ -1,50 +1,70 @@
 import streamlit as st
 import pandas as pd
-import os
+import PyPDF2
+import re
+import io
 
-# Configuración de la página
-st.set_page_config(page_title="OBITER - Radar Legal", layout="wide")
-st.title("🏛️ OBITER: Inteligencia de Auditoría Legal")
-st.markdown("---")
+st.set_page_config(page_title="OBITER - Radar Legal Privado", layout="wide")
 
-# Intentar leer el archivo de datos
-archivo = "OBITER.xlsx"
+st.title("🏛️ OBITER: Procesamiento Privado de Expedientes")
+st.write("Suba sus archivos PDF aquí. El análisis se hace en tiempo real y no se guarda en ningún servidor externo.")
 
-if os.path.exists(archivo):
-    df = pd.read_excel(archivo)
+# --- FUNCIÓN CEREBRO (Extraída de tu main.py) ---
+def analizar_texto(texto):
+    monto_search = re.search(r'¢\s?([\d\.]+,\d{2})', texto)
+    interes_search = re.search(r'(\d+,\d+)%\s+mensual', texto)
+    expediente_search = re.search(r'\d{2}-\d{6}-\d{4}-[A-Z0-9]+', texto)
     
-    # --- INDICADORES RÁPIDOS ---
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Expedientes", len(df))
+    monto = monto_search.group(1) if monto_search else "No detectado"
+    interes = interes_search.group(1) if interes_search else "0"
     
-    # Verificar si existen columnas inteligentes
-    if 'Estado_Procesal' in df.columns:
-        riesgos = len(df[df['Estado_Procesal'].str.contains("🚩", na=False)])
-        col2.metric("Alertas de Usura", riesgos)
-    
-    col3.info("Radar Actualizado")
+    # Lógica de Usura
+    try:
+        tasa_num = float(interes.replace(',', '.'))
+        estado = "🚩 REVISAR USURA" if tasa_num > 3.0 else "✅ ESTÁNDAR"
+    except:
+        estado = "Análisis manual requerido"
 
-    st.write("### 🔍 Análisis Detallado de Deudas")
+    return {
+        "Expediente": expediente_search.group(0) if expediente_search else "S/N",
+        "Monto_Principal": monto,
+        "Tasa_Interes": f"{interes}%",
+        "Estado_Procesal": estado
+    }
+
+# --- INTERFAZ DE CARGA ---
+archivos_subidos = st.file_uploader("Seleccione uno o varios PDFs", type="pdf", accept_multiple_files=True)
+
+if archivos_subidos:
+    resultados = []
     
-    # --- TABLA INTELIGENTE ---
-    st.dataframe(
-        df, 
-        column_config={
-            "Ver_PDF": st.column_config.LinkColumn("Documento Original"),
-            "Monto_Principal": "Monto Reclamado",
-            "Tasa_Interes": "Tasa %",
-            "Estado_Procesal": "Estatus"
-        },
-        use_container_width=True
+    for archivo_pdf in archivos_subidos:
+        # Leer el PDF directamente desde la web
+        lector = PyPDF2.PdfReader(archivo_pdf)
+        texto_completo = ""
+        for pagina in lector.pages:
+            texto_completo += pagina.extract_text()
+        
+        # Analizar
+        datos = analizar_texto(texto_completo)
+        datos["Nombre_Archivo"] = archivo_pdf.name
+        resultados.append(datos)
+    
+    # Mostrar resultados
+    df = pd.DataFrame(resultados)
+    
+    st.write("---")
+    st.subheader("📊 Resultados del Análisis")
+    st.dataframe(df, use_container_width=True)
+    
+    # Botón para descargar el Excel resultante
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    
+    st.download_button(
+        label="📥 Descargar Reporte en Excel",
+        data=buffer.getvalue(),
+        file_name="analisis_obiter.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
-    # --- BOTÓN DE DESCARGA ---
-    with open(archivo, "rb") as file:
-        st.download_button(
-            label="📥 Descargar Base de Datos Completa",
-            data=file,
-            file_name="Reporte_Radar_Legal.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-else:
-    st.warning("⚠️ Esperando el archivo OBITER.xlsx. Ejecuta 'python main.py' en la terminal.")
