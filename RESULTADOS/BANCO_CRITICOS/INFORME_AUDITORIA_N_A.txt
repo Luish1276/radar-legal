@@ -1,0 +1,10 @@
+STRICTLY CONFIDENTIAL - AUDITORÍA LEGAL EXTERNA
+==================================================
+EXPEDIENTE: Expediente-18-010019-1338-CJ.pdf
+TITULAR:     DEMANDADO
+ID:          N_A
+--------------------------------------------------
+RESULTADO:   ⚠️ ALERTA: PROCESO CON BIENES PERO SIN IMPULSO JUDICIAL.
+--------------------------------------------------
+RECOMENDACIÓN: Revisar gestión del abogado asignado.
+FECHA REVISIÓN: 2026-01-09 19:48
