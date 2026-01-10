@@ -1,62 +1,94 @@
-import streamlit as st
+import os
+import PyPDF2
+import re
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Radar Padrón: Prospección", layout="wide", page_icon="🚀")
+# --- CONFIGURACIÓN OBITER ---
+BASE_DATOS_OBITER = "OBITER.xlsx"
+CARPETA_EXPEDIENTES = CARPETA_EXPEDIENTES = "."
+ARCHIVO_EXCEPCIONES = "REVISION_MANUAL.txt"
 
-# --- ESTILO ---
-st.markdown("""
-    <style>
-    .reportview-container { background: #f0f2f6; }
-    .main { padding-top: 2rem; }
-    </style>
-    """, unsafe_allow_html=True)
+def motor_radar_punteria_total():
+    # 1. Cargar OBITER existente
+    if os.path.exists(BASE_DATOS_OBITER):
+        df_obiter = pd.read_excel(BASE_DATOS_OBITER)
+    else:
+        df_obiter = pd.DataFrame(columns=["Fecha_Analisis", "Expediente", "Cedula", "Estado_Procesal", "Calidad_ID"])
 
-st.title("🚀 Radar Padrón: Inteligencia de Prospección")
-st.subheader("Buscador de Demandas Nuevas (Antes de Notificación)")
+    if not os.path.exists(CARPETA_EXPEDIENTES):
+        print(f"❌ Carpeta '{CARPETA_EXPEDIENTES}' no encontrada.")
+        return
 
-# --- PESTAÑAS ---
-tab1, tab2, tab3 = st.tabs(["📊 Panel de Prospección", "📥 Carga de Padrón", "🤖 Estado del Robot"])
+    archivos = [f for f in os.listdir(CARPETA_EXPEDIENTES) if f.endswith('.pdf')]
+    excepciones = []
 
-with tab1:
-    st.write("### Lista de Clientes Potenciales Detectados")
-    st.info("Estos expedientes han sido cruzados con el Padrón y detectados como 'Sin Notificar'.")
-    
-    # Simulación de la base de datos que llenará el robot
-    data_prospeccion = [
-        {"Cédula": "1-0988-0234", "Nombre": "JUAN PEREZ SOLANO", "Expediente": "26-000124-1205-CJ", "Acreedor": "BANCO NACIONAL", "Monto Est.": "₡2.500.000", "Estado": "ADMITIDA"},
-        {"Cédula": "2-0455-0876", "Nombre": "MARIA RUIZ FONSECA", "Expediente": "26-000567-1158-CJ", "Acreedor": "INSTACREDIT", "Monto Est.": "₡850.000", "Estado": "PENDIENTE NOTIFICAR"}
-    ]
-    
-    df = pd.DataFrame(data_prospeccion)
-    st.dataframe(df, use_container_width=True)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.button("📞 Marcar como Llamado")
-    with col2:
-        st.download_button("📥 Descargar Reporte para Ventas", df.to_csv(index=False), "prospeccion_hoy.csv")
+    print(f"🚀 Analizando {len(archivos)} archivos. Generando OBITER y Filtro de Excepciones...")
 
-with tab2:
-    st.header("Carga de Cédulas del Padrón")
-    st.write("Sube el segmento del padrón electoral que deseas monitorear.")
-    archivo_padron = st.file_uploader("Archivo Padrón (Excel/CSV):", type=["csv", "xlsx"])
-    
-    if archivo_padron:
-        st.success("✅ Padrón cargado. El robot iniciará el barrido secuencial.")
-        # Aquí procesamos el archivo para extraer solo las cédulas
-        # df_padron = pd.read_csv(archivo_padron)
+    for archivo in archivos:
+        try:
+            ruta = os.path.join(CARPETA_EXPEDIENTES, archivo)
+            with open(ruta, 'rb') as f:
+                lector = PyPDF2.PdfReader(f)
+                texto_busqueda = ""
+                for i in range(min(7, len(lector.pages))):
+                    texto_busqueda += lector.pages[i].extract_text().upper() + "\n"
 
-with tab3:
-    st.header("Control del Robot de Búsqueda")
-    st.write("Estado de la conexión con Gestión en Línea:")
-    
-    st.status("Conectado a Servidores Judiciales", state="running")
-    st.progress(35, text="Escaneando cédulas... 350/1000")
-    
-    st.markdown("""
-    **Parámetros de Búsqueda:**
-    * **Frecuencia:** Cada 24 horas.
-    * **Filtro:** Solo procesos de COBRO JUDICIAL.
-    * **Jurisdicción:** Todo el país.
-    """)
+                # --- SENSOR DE IDENTIDAD ---
+                cedula = None
+                calidad = "ALTA"
+                m1 = re.search(r"(\d-\d{3,4}-\d{4}|\d-\d{3}-\d{6})", texto_busqueda)
+                m2 = re.search(r"(?<!-)(\b\d{9,10}\b)(?!-)", texto_busqueda)
+                
+                if m1:
+                    cedula = m1.group(1)
+                elif m2:
+                    cedula = m2.group(1)
+                    calidad = "MEDIA (PEGADA)"
+                else:
+                    cedula = "SIN_ID_MANUAL"
+                    calidad = "NULA"
+                    excepciones.append(archivo) # Guardamos el nombre para el reporte de fallos
+
+                # --- SENSOR DE EXPEDIENTE ---
+                exp_m = re.search(r"(\d{2}-\d{6}-\d{4}-[A-Z]{2})", texto_busqueda)
+                expediente = exp_m.group(1) if exp_m else archivo.replace(".pdf", "")
+
+                # --- LÓGICA DE AUDITORÍA ---
+                es_critico = "EMBARGO" in texto_busqueda and "SOLICITO" not in texto_busqueda[-1200:]
+                
+                # --- ACTUALIZACIÓN DE OBITER ---
+                if expediente in df_obiter['Expediente'].values:
+                    idx = df_obiter[df_obiter['Expediente'] == expediente].index[0]
+                    if df_obiter.at[idx, 'Cedula'] == "SIN_ID_MANUAL" and cedula != "SIN_ID_MANUAL":
+                        df_obiter.at[idx, 'Cedula'] = cedula
+                        df_obiter.at[idx, 'Calidad_ID'] = calidad
+                else:
+                    nuevo = {
+                        "Fecha_Analisis": datetime.now().strftime("%Y-%m-%d"),
+                        "Expediente": expediente,
+                        "Cedula": cedula,
+                        "Estado_Procesal": "🚩 CRÍTICO" if es_critico else "✅ ACTIVO",
+                        "Calidad_ID": calidad
+                    }
+                    df_obiter = pd.concat([df_obiter, pd.DataFrame([nuevo])], ignore_index=True)
+
+        except Exception as e:
+            print(f"❌ Error en {archivo}: {e}")
+
+    # 2. Guardar el Activo Principal (Excel)
+    df_obiter.to_excel(BASE_DATOS_OBITER, index=False)
+
+    # 3. Guardar el Filtro de Excepciones (Txt)
+    with open(ARCHIVO_EXCEPCIONES, "w", encoding="utf-8") as f_exc:
+        f_exc.write(f"--- REVISIÓN MANUAL REQUERIDA ({datetime.now().strftime('%Y-%m-%d')}) ---\n")
+        f_exc.write(f"Los siguientes {len(excepciones)} archivos no pudieron ser identificados automáticamente:\n\n")
+        for ex in excepciones:
+            f_exc.write(f"- {ex}\n")
+
+    print(f"\n✅ Sincronización completa.")
+    print(f"📁 Base de Datos: {BASE_DATOS_OBITER}")
+    print(f"⚠️  Casos para revisar a mano: {len(excepciones)} (Ver {ARCHIVO_EXCEPCIONES})")
+
+if __name__ == "__main__":
+    motor_radar_punteria_total()
