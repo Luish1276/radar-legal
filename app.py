@@ -2,72 +2,92 @@ import streamlit as st
 import PyPDF2
 import re
 from datetime import datetime
+import pandas as pd
 
-st.set_page_config(page_title="Radar de Negligencia OBITER", layout="wide")
+# 1. NOMBRE FIJO - IDENTIDAD DE MARCA
+st.set_page_config(page_title="OBITER - Intelligence Unit", layout="wide")
 
-def analizar_negligencia(texto):
-    # 1. Extraer fechas
+# Inicializar la "Base de Datos" interna (Memoria de Sesión)
+if 'database' not in st.session_state:
+    st.session_state['database'] = []
+
+def auditoria_core(texto, nombre_archivo):
+    # Detección de fechas para inactividad
     fechas = re.findall(r'\d{2}/\d{2}/\d{4}', texto)
-    if not fechas:
-        return "No se detectan fechas de gestión."
-
-    lista_fechas = []
-    for f in fechas:
-        try:
-            d = datetime.strptime(f, '%d/%m/%Y')
-            if 2010 < d.year <= datetime.now().year:
-                lista_fechas.append(d)
-        except:
-            continue
+    meses_inactivo = 0
+    ultima_fecha = "S/D"
     
-    if not lista_fechas:
-        return "Sin historial de fechas válido."
+    if fechas:
+        lista_fechas = []
+        for f in fechas:
+            try:
+                d = datetime.strptime(f, '%d/%m/%Y')
+                if 2010 < d.year <= datetime.now().year:
+                    lista_fechas.append(d)
+            except: continue
+        if lista_fechas:
+            max_fecha = max(lista_fechas)
+            ultima_fecha = max_fecha.strftime('%d/%m/%Y')
+            meses_inactivo = (datetime.now().year - max_fecha.year) * 12 + (datetime.now().month - max_fecha.month)
 
-    ultima_gestion = max(lista_fechas)
-    hoy = datetime.now()
-    meses_inactivo = (hoy.year - ultima_gestion.year) * 12 + (hoy.month - ultima_gestion.month)
-
-    # 2. Rastrear palabras clave de notificación
-    tiene_notificacion_reciente = any(palabra in texto.lower() for palabra in ["notificado", "acta de notificación", "cedula de notificación"])
+    # Detección de Cesionario
+    es_cesionario = "SÍ" if re.search(r'cesionario|contratado por', texto, re.I) else "NO"
     
-    # 3. Dictamen de Negligencia
-    alertas = []
-    
-    if meses_inactivo >= 6:
-        alertas.append(f"🔴 ABANDONO PROCESAL: {meses_inactivo} meses sin movimiento. ¡Procede Caducidad de Instancia!")
-    elif meses_inactivo >= 3 and not tiene_notificacion_reciente:
-        alertas.append(f"⚠️ NEGLIGENCIA DE GESTIÓN: {meses_inactivo} meses sin rastro de notificación exitosa. El abogado no está localizando al deudor.")
-    elif meses_inactivo < 3:
-        alertas.append(f"🟢 CASO ACTIVO: Última gestión hace {meses_inactivo} meses.")
+    # Detección de Notificación
+    notificado = "SÍ" if any(x in texto.lower() for x in ["notificado", "notificación positiva"]) else "NO"
 
-    return {
-        "ultima": ultima_gestion.strftime('%d/%m/%Y'),
-        "meses": meses_inactivo,
-        "alertas": alertas
+    # Dictamen de Riesgo
+    estado = "ACTIVO"
+    if meses_inactivo >= 6: estado = "CADUCIDAD"
+    elif meses_inactivo >= 3 and notificado == "NO": estado = "NEGLIGENCIA"
+
+    # Estructura de datos para nuestra red interna
+    registro = {
+        "Fecha Análisis": datetime.now().strftime('%d/%m/%Y %H:%M'),
+        "Expediente": nombre_archivo,
+        "Última Gestión": ultima_fecha,
+        "Meses Inactivo": meses_inactivo,
+        "Cesion": es_cesionario,
+        "Notificado": notificado,
+        "Estado Crítico": estado
     }
+    return registro
 
-# --- INTERFAZ LIMPIA ---
-st.title("🕵️ Radar de Negligencia Legal")
-st.write("Detección automática de abandono y falta de notificación.")
+st.title("🏛️ OBITER")
+st.markdown("### Radar de Negligencia y Central de Riesgo Procesal")
 
-archivo = st.file_uploader("Suba el PDF del expediente", type="pdf")
+# --- SECCIÓN DE CARGA ---
+with st.expander("📥 CARGAR NUEVOS EXPEDIENTES", expanded=True):
+    archivos = st.file_uploader("Arrastre los PDFs aquí", type="pdf", accept_multiple_files=True)
+    if st.button("PROCESAR Y GUARDAR EN RED"):
+        if archivos:
+            for arc in archivos:
+                lector = PyPDF2.PdfReader(arc)
+                texto = "".join([p.extract_text() for p in lector.pages])
+                resultado = auditoria_core(texto, arc.name)
+                # Guardar en nuestra base de datos interna
+                st.session_state['database'].append(resultado)
+            st.success(f"{len(archivos)} expedientes integrados a la red.")
 
-if archivo:
-    lector = PyPDF2.PdfReader(archivo)
-    texto_completo = "".join([p.extract_text() for p in lector.pages])
+# --- SECCIÓN DE BASE DE DATOS (EL "EQUIFAX" INTERNO) ---
+st.markdown("---")
+st.subheader("📊 Central de Inteligencia Acumulada")
+
+if st.session_state['database']:
+    df = pd.DataFrame(st.session_state['database'])
     
-    res = analizar_negligencia(texto_completo)
+    # Filtros rápidos para toma de decisiones
+    col1, col2 = st.columns(2)
+    with col1:
+        solo_caducidad = st.checkbox("Ver solo casos en CADUCIDAD")
     
-    if isinstance(res, dict):
-        st.markdown(f"### ÚLTIMA GESTIÓN: `{res['ultima']}`")
-        st.markdown(f"### MESES DE INACTIVIDAD: `{res['meses']}`")
-        
-        for mensaje in res['alertas']:
-            if "🔴" in mensaje:
-                st.error(mensaje)
-            elif "⚠️" in mensaje:
-                st.warning(mensaje)
-            else:
-                st.success(mensaje)
-    else:
-        st.info(res)
+    df_mostrar = df[df['Estado Crítico'] == "CADUCIDAD"] if solo_caducidad else df
+
+    # Estilo Musk: Limpio y funcional
+    st.dataframe(df_mostrar, use_container_width=True)
+
+    # Botón para descargar toda la base de datos
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 EXPORTAR INTELIGENCIA (CSV)", csv, "obiter_db.csv", "text/csv")
+else:
+    st.info("La red está vacía. Inyecte datos subiendo expedientes.")
