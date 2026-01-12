@@ -4,7 +4,7 @@ import re
 import pandas as pd
 from datetime import datetime
 
-# 1. CONFIGURACIÓN DE IDENTIDAD (RADAR LEGAL)
+# 1. CONFIGURACIÓN DE IDENTIDAD
 st.set_page_config(page_title="RADAR LEGAL", layout="wide")
 
 if 'radar_db' not in st.session_state:
@@ -12,7 +12,7 @@ if 'radar_db' not in st.session_state:
 
 def analizar_adn_expediente(file):
     texto_total = ""
-    # Escaneo profundo de todas las páginas
+    # Escaneo profundo de todas las páginas (crucial para detectar 2025 al final)
     with pdfplumber.open(file) as pdf:
         for pagina in pdf.pages:
             texto_total += " " + (pagina.extract_text() or "")
@@ -24,16 +24,14 @@ def analizar_adn_expediente(file):
     es_cesion = "SÍ" if any(x in clean_text for x in patrones_cesion) else "NO"
     
     # --- COLUMNA 2: NOTIFICADO ---
-    # Ajustado para detectar actas digitales y sellos de ventanilla
     patrones_notif = ["acta de notificacion", "diligenciada: si", "entregado al destinatario", "notificado", "notif.", "acuse"]
     esta_notif = "SÍ" if any(x in clean_text for x in patrones_notif) else "NO"
     
-    # --- COLUMNAS 3, 4, 5 y 6: TIEMPOS Y ESTADO ---
+    # --- COLUMNAS 3, 4, 5, 6, 7 y 8: TIEMPOS Y ESTADO ---
     fechas = re.findall(r'\d{2}/\d{2}/\d{4}', texto_total)
     prescripcion, caducidad, meses, ult_fecha, estado = "NO", "NO", 0, "S/D", "ACTIVO"
     
     if fechas:
-        # Filtro de seguridad para fechas coherentes
         lista_d = [datetime.strptime(f, '%d/%m/%Y') for f in fechas if 2010 < int(f[-4:]) <= 2026]
         if lista_d:
             ultima = max(lista_d)
@@ -43,7 +41,7 @@ def analizar_adn_expediente(file):
             hoy = datetime(2026, 1, 11)
             meses = (hoy.year - ultima.year) * 12 + (hoy.month - ultima.month)
             
-            # Lógica de Diagnóstico
+            # Lógica de Diagnóstico Técnico
             if meses >= 48: 
                 prescripcion = "SÍ"
                 estado = "PRESCRITO"
@@ -66,11 +64,11 @@ def analizar_adn_expediente(file):
 
 # --- INTERFAZ DE USUARIO ---
 st.title("🏛️ RADAR LEGAL")
-st.markdown("### **Diagnóstico de Falencias de Flota**")
+st.markdown("### **Auditoría Técnica de Plazos y Gestión**") # NUEVO SUBTÍTULO
 
 archivos = st.file_uploader("Inyectar Expedientes PDF", type="pdf", accept_multiple_files=True)
 
-if st.button("EJECUTAR DIAGNÓSTICO"):
+if st.button("EJECUTAR ANÁLISIS"):
     if archivos:
         for a in archivos:
             resultado = analizar_adn_expediente(a)
@@ -80,16 +78,17 @@ if st.button("EJECUTAR DIAGNÓSTICO"):
 if st.session_state['radar_db']:
     df = pd.DataFrame(st.session_state['radar_db'])
     
-    # Orden exacto de las 8 columnas que solicitaste
+    # Orden de las 8 columnas solicitado
     orden = ["Expediente", "Cesion", "Notificado", "Prescripción", "Caducidad", "Meses Inactivo", "Última Gestión", "Estado"]
     df = df[orden]
     
     st.markdown("---")
-    st.markdown("#### 📊 Fleet Status")
+    st.markdown("#### 📊 Reporte de Auditoría")
     
-    # Estilo para que el Estado se vea profesional
+    # Estilo técnico para la columna Estado
     def style_estado(v):
-        color = 'red' if v in ['PRESCRITO', 'CADUCO'] else 'green'
+        if v == 'ACTIVO': color = '#28a745' # Verde
+        else: color = '#dc3545' # Rojo
         return f'color: {color}; font-weight: bold'
     
     st.dataframe(df.style.applymap(style_estado, subset=['Estado']), use_container_width=True)
