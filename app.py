@@ -1,21 +1,27 @@
 import streamlit as st
 import PyPDF2
 import re
-from datetime import datetime
 import pandas as pd
+from datetime import datetime
+import os
 
-# 1. NOMBRE FIJO - IDENTIDAD DE MARCA
+# CONFIGURACIÓN DE ALTO NIVEL
 st.set_page_config(page_title="OBITER - Intelligence Unit", layout="wide")
 
-# Inicializar la "Base de Datos" interna (Memoria de Sesión)
-if 'database' not in st.session_state:
-    st.session_state['database'] = []
+# ARCHIVO DE PERSISTENCIA (Tu Equifax privado)
+DB_FILE = "obiter_intelligence.csv"
 
-def auditoria_core(texto, nombre_archivo):
-    # Detección de fechas para inactividad
+# Cargar base de datos existente o crear una nueva
+if os.path.exists(DB_FILE):
+    st.session_state['obiter_db'] = pd.read_csv(DB_FILE).to_dict('records')
+elif 'obiter_db' not in st.session_state:
+    st.session_state['obiter_db'] = []
+
+def extraer_dna_legal(texto, nombre_archivo):
+    # Extracción de fechas y cálculo de inactividad
     fechas = re.findall(r'\d{2}/\d{2}/\d{4}', texto)
     meses_inactivo = 0
-    ultima_fecha = "S/D"
+    ultima_fecha_str = "S/D"
     
     if fechas:
         lista_fechas = []
@@ -25,69 +31,82 @@ def auditoria_core(texto, nombre_archivo):
                 if 2010 < d.year <= datetime.now().year:
                     lista_fechas.append(d)
             except: continue
+        
         if lista_fechas:
-            max_fecha = max(lista_fechas)
-            ultima_fecha = max_fecha.strftime('%d/%m/%Y')
-            meses_inactivo = (datetime.now().year - max_fecha.year) * 12 + (datetime.now().month - max_fecha.month)
+            ultima_fecha = max(lista_fechas)
+            ultima_fecha_str = ultima_fecha.strftime('%d/%m/%Y')
+            hoy = datetime.now()
+            meses_inactivo = (hoy.year - ultima_fecha.year) * 12 + (hoy.month - ultima_fecha.month)
 
-    # Detección de Cesionario
+    # Detección de Cesión y Notificación
     es_cesionario = "SÍ" if re.search(r'cesionario|contratado por', texto, re.I) else "NO"
-    
-    # Detección de Notificación
     notificado = "SÍ" if any(x in texto.lower() for x in ["notificado", "notificación positiva"]) else "NO"
-
-    # Dictamen de Riesgo
+    
+    # MATRIZ DE ESTADOS CRÍTICOS
     estado = "ACTIVO"
-    if meses_inactivo >= 6: estado = "CADUCIDAD"
+    if meses_inactivo >= 48: estado = "PRESCRIPCIÓN"
+    elif meses_inactivo >= 6: estado = "CADUCIDAD"
     elif meses_inactivo >= 3 and notificado == "NO": estado = "NEGLIGENCIA"
 
-    # Estructura de datos para nuestra red interna
-    registro = {
-        "Fecha Análisis": datetime.now().strftime('%d/%m/%Y %H:%M'),
+    return {
         "Expediente": nombre_archivo,
-        "Última Gestión": ultima_fecha,
-        "Meses Inactivo": meses_inactivo,
+        "Estado": estado,
+        "Meses": meses_inactivo,
+        "Ult_Gestion": ultima_fecha_str,
         "Cesion": es_cesionario,
-        "Notificado": notificado,
-        "Estado Crítico": estado
+        "Notif": notificado,
+        "Timestamp": datetime.now().strftime('%d/%m/%Y %H:%M')
     }
-    return registro
 
 st.title("🏛️ OBITER")
-st.markdown("### Radar de Negligencia y Central de Riesgo Procesal")
+st.markdown("### Strategic Intelligence Framework")
 
-# --- SECCIÓN DE CARGA ---
-with st.expander("📥 CARGAR NUEVOS EXPEDIENTES", expanded=True):
-    archivos = st.file_uploader("Arrastre los PDFs aquí", type="pdf", accept_multiple_files=True)
-    if st.button("PROCESAR Y GUARDAR EN RED"):
+# --- PANEL DE CONTROL ---
+with st.sidebar:
+    st.header("📥 Data Ingestion")
+    archivos = st.file_uploader("Upload PDF Corps", type="pdf", accept_multiple_files=True)
+    if st.button("EXECUTE ANALYSIS"):
         if archivos:
+            nuevos_registros = []
             for arc in archivos:
                 lector = PyPDF2.PdfReader(arc)
                 texto = "".join([p.extract_text() for p in lector.pages])
-                resultado = auditoria_core(texto, arc.name)
-                # Guardar en nuestra base de datos interna
-                st.session_state['database'].append(resultado)
-            st.success(f"{len(archivos)} expedientes integrados a la red.")
+                nuevos_registros.append(extraer_dna_legal(texto, arc.name))
+            
+            # Actualizar memoria y guardar en CSV físico
+            st.session_state['obiter_db'].extend(nuevos_registros)
+            pd.DataFrame(st.session_state['obiter_db']).to_csv(DB_FILE, index=False)
+            st.success(f"{len(archivos)} targets procesados.")
 
-# --- SECCIÓN DE BASE DE DATOS (EL "EQUIFAX" INTERNO) ---
-st.markdown("---")
-st.subheader("📊 Central de Inteligencia Acumulada")
-
-if st.session_state['database']:
-    df = pd.DataFrame(st.session_state['database'])
+# --- CENTRAL DE INTELIGENCIA (EL DASHBOARD) ---
+if st.session_state['obiter_db']:
+    df = pd.DataFrame(st.session_state['obiter_db'])
     
-    # Filtros rápidos para toma de decisiones
+    st.subheader("📊 Fleet Status")
+    
+    # Filtros de Eficiencia
     col1, col2 = st.columns(2)
     with col1:
-        solo_caducidad = st.checkbox("Ver solo casos en CADUCIDAD")
+        seleccion = st.multiselect(
+            "Filter Anomalies:",
+            ["PRESCRIPCIÓN", "CADUCIDAD", "NEGLIGENCIA", "ACTIVO"],
+            default=["PRESCRIPCIÓN", "CADUCIDAD"]
+        )
     
-    df_mostrar = df[df['Estado Crítico'] == "CADUCIDAD"] if solo_caducidad else df
+    df_filtrado = df[df['Estado'].isin(seleccion)] if seleccion else df
 
-    # Estilo Musk: Limpio y funcional
-    st.dataframe(df_mostrar, use_container_width=True)
+    # TABLA MAESTRA
+    st.dataframe(df_filtrado, use_container_width=True)
 
-    # Botón para descargar toda la base de datos
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 EXPORTAR INTELIGENCIA (CSV)", csv, "obiter_db.csv", "text/csv")
+    # MÉTRICAS ESTILO MUSK (KPIs de Negligencia)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("CADUCIDAD", len(df[df['Estado'] == "CADUCIDAD"]))
+    c2.metric("PRESCRIPCIÓN", len(df[df['Estado'] == "PRESCRIPCIÓN"]))
+    c3.metric("NEGLIGENCIA", len(df[df['Estado'] == "NEGLIGENCIA"]))
+
+    if st.button("RESET DATABASE (WIPE ALL)"):
+        if os.path.exists(DB_FILE): os.remove(DB_FILE)
+        st.session_state['obiter_db'] = []
+        st.rerun()
 else:
-    st.info("La red está vacía. Inyecte datos subiendo expedientes.")
+    st.info("System Idle. Waiting for data injection...")
