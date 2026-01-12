@@ -1,77 +1,79 @@
 import streamlit as st
-import PyPDF2
+import pdfplumber
 import re
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="OBITER", layout="wide")
+st.set_page_config(page_title="OBITER - High Precision", layout="wide")
 
 if 'obiter_db' not in st.session_state:
     st.session_state['obiter_db'] = []
 
-def auditoria_profunda(pdf_reader, nombre_archivo):
-    texto_completo = ""
-    # Escaneamos TODAS las páginas para no perder resoluciones al final del archivo
-    for pagina in pdf_reader.pages:
-        texto_completo += " " + (pagina.extract_text() or "")
+def analizar_adn_expediente(file):
+    texto_total = ""
+    # ESCANEO TOTAL: No dejamos ni una página por fuera
+    with pdfplumber.open(file) as pdf:
+        for pagina in pdf.pages:
+            texto_total += " " + (pagina.extract_text() or "")
     
-    clean_text = " ".join(texto_completo.lower().split())
+    clean_text = " ".join(texto_total.lower().split())
     
-    # 1. CESIÓN (Legitimación)
-    patrones_cesion = ["cesion", "cesionario", "contratado por", "cedente", "endoso", "sustitucion procesal"]
+    # 1. COLUMNA CESIÓN
+    # Buscamos la cesión de Promerica que aparece en tu documento
+    patrones_cesion = ["cesion", "cesionario", "contratado por", "cedente", "endoso"]
     es_cesion = "SÍ" if any(x in clean_text for x in patrones_cesion) else "NO"
     
-    # 2. NOTIFICACIÓN (Ojo de Águila Reforzado)
-    # Buscamos no solo la palabra, sino la acción judicial de notificar
+    # 2. COLUMNA NOTIFICADO (Precisión Quirúrgica)
+    # Tu expediente usa "Diligenciada: SI" y "Acta de Notificación"
     patrones_notif = [
-        "notificacion positiva", "notificado personalmente", "acta de notificacion", 
-        "cedula de notificacion", "notificacion exitosa", "resultado positivo",
-        "concedase la notificacion", "notificacion por boletin", "constancia de notificacion"
+        "acta de notificacion", "diligenciada: si", "entregado al destinatario",
+        "notificacion positiva", "cedula", "notificado personalmente"
     ]
     esta_notif = "SÍ" if any(x in clean_text for x in patrones_notif) else "NO"
     
-    # 3. ÚLTIMA GESTIÓN (Escritos y Resoluciones)
-    # Buscamos todas las fechas para encontrar el último movimiento real del abogado
-    fechas = re.findall(r'\d{2}/\d{2}/\d{4}', texto_completo)
+    # 3. COLUMNAS ESTADO Y MESES (Regla de Oro: 6 y 48)
+    fechas = re.findall(r'\d{2}/\d{2}/\d{4}', texto_total)
     estado, meses, ult_fecha_str = "ACTIVO", 0, "S/D"
     
     if fechas:
+        # Filtramos para ignorar fechas basura y quedarnos con movimientos judiciales
         lista_d = [datetime.strptime(f, '%d/%m/%Y') for f in fechas if 2010 < int(f[-4:]) <= 2026]
         if lista_d:
             ultima = max(lista_d)
             ult_fecha_str = ultima.strftime('%d/%m/%Y')
             # Cálculo a Enero 2026
-            meses = (2026 - ultima.year) * 12 + (1 - ultima.month)
+            hoy = datetime(2026, 1, 11)
+            meses = (hoy.year - ultima.year) * 12 + (hoy.month - ultima.month)
             
             if meses >= 48: estado = "PRESCRIPCIÓN"
             elif meses >= 6: estado = "CADUCIDAD"
 
     return {
-        "Expediente": nombre_archivo,
+        "Expediente": file.name,
         "Cesion": es_cesion,
         "Notificado": esta_notif,
         "Estado Final": estado,
-        "Meses Inactividad": meses,
+        "Meses Inactivo": meses,
         "Ultima Gestion": ult_fecha_str
     }
 
-st.title("🏛️ OBITER")
+# INTERFAZ OBITER
+st.title("🏛️ OBITER - Fleet Status")
 
-archivos = st.file_uploader("Inyectar Expedientes", type="pdf", accept_multiple_files=True)
+archivos = st.file_uploader("Inyectar Expedientes PDF", type="pdf", accept_multiple_files=True)
 
-if st.button("EJECUTAR ANÁLISIS"):
+if st.button("EJECUTAR ANÁLISIS CRÍTICO"):
     if archivos:
         for a in archivos:
-            lector = PyPDF2.PdfReader(a)
-            resultado = auditoria_profunda(lector, a.name)
+            resultado = analizar_adn_expediente(a)
             st.session_state['obiter_db'].append(resultado)
         st.rerun()
 
 if st.session_state['obiter_db']:
     df = pd.DataFrame(st.session_state['obiter_db'])
-    st.markdown("### 📊 Fleet Status: Diagnóstico de Falencias")
+    st.markdown("### 📊 Resultados del Diagnóstico")
     st.dataframe(df, use_container_width=True)
     
-    if st.button("LIMPIAR CENTRAL"):
+    if st.button("LIMPIAR TABLA"):
         st.session_state['obiter_db'] = []
         st.rerun()
