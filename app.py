@@ -97,3 +97,60 @@ if st.session_state['radar_db']:
     if st.button("LIMPIAR TABLA"):
         st.session_state['radar_db'] = []
         st.rerun()
+   import streamlit as st
+import pdfplumber
+import openai
+# Aquí importamos tus módulos de la carpeta engine
+from engine.dogmatica import analizar_tipicidad
+from engine.procesal import revisar_nulidades
+
+st.set_page_config(page_title="Radar Legal CR", page_icon="⚖️")
+
+st.title("⚖️ Radar Legal: Análisis Profundo (Costa Rica)")
+st.markdown("---")
+
+# Barra lateral
+with st.sidebar:
+    st.header("⚙️ Configuración")
+    api_key = st.text_input("OpenAI API Key", type="password")
+    materia = st.selectbox("Materia a analizar", ["Penal", "Laboral", "Administrativo"])
+    st.info("Materia actual: Derecho Penal de Costa Rica")
+
+# Carga de expediente
+archivo = st.file_uploader("Subir expediente (PDF)", type=["pdf"])
+
+if archivo and api_key:
+    with st.spinner("Ejecutando razonamiento jurídico multi-capa..."):
+        # 1. Extraer texto
+        texto_expediente = ""
+        with pdfplumber.open(archivo) as pdf:
+            for page in pdf.pages:
+                texto_completo = page.extract_text()
+                if texto_completo:
+                    texto_expediente += texto_completo + "\n"
+
+        # 2. Lógica de Análisis Robusto
+        client = openai.OpenAI(api_key=api_key)
+        
+        # Le pedimos a la IA que use los criterios de tus archivos en 'engine'
+        prompt_final = f"""
+        Como experto penalista de Costa Rica, analiza el siguiente texto bajo dos lupas:
+        
+        1. LUPA PROCESAL (Forma): Busca nulidades según el Art. 178 CPP y vicios en la prueba (Art. 181 CPP).
+        2. LUPA DOGMÁTICA (Fondo): Analiza tipicidad y antijuricidad según el Código Penal de CR.
+        
+        Texto del expediente: {texto_expediente[:15000]}
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": "Sos un consultor jurídico experto en leyes de Costa Rica."},
+                      {"role": "user", "content": prompt_final}]
+        )
+
+        # 3. Mostrar resultados ordenados
+        st.subheader("🔍 Dictamen del Radar Legal")
+        st.markdown(response.choices[0].message.content)
+
+elif not api_key and archivo:
+    st.warning("Ingresá la API Key para activar el motor de razonamiento.")     
