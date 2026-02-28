@@ -3,96 +3,97 @@ import pdfplumber
 import re
 import pandas as pd
 from datetime import datetime
+import os
 
-# 1. CONFIGURACIÓN DE IDENTIDAD
-st.set_page_config(page_title="RADAR LEGAL", layout="wide")
+# 1. CONFIGURACIÓN DEL SISTEMA
+st.set_page_config(page_title="RADAR LEGAL - Auditoría Integral", layout="wide")
 
 if 'radar_db' not in st.session_state:
     st.session_state['radar_db'] = []
 
-def analizar_adn_expediente(file):
+# --- MOTOR DE AUDITORÍA (REGLAS JURÍDICAS) ---
+def analizar_pdf(file, nombre_archivo):
     texto_total = ""
-    # Escaneo profundo de todas las páginas (crucial para detectar 2025 al final)
-    with pdfplumber.open(file) as pdf:
-        for pagina in pdf.pages:
-            texto_total += " " + (pagina.extract_text() or "")
-    
+    try:
+        with pdfplumber.open(file) as pdf:
+            for pagina in pdf.pages:
+                texto_total += " " + (pagina.extract_text() or "")
+    except Exception as e:
+        return {"Error": f"No se pudo leer el PDF: {e}"}
+
     clean_text = " ".join(texto_total.lower().split())
     
-    # --- COLUMNA 1: CESIÓN ---
-    patrones_cesion = ["cesion", "cesionario", "contratado por", "cedente", "endoso"]
-    es_cesion = "SÍ" if any(x in clean_text for x in patrones_cesion) else "NO"
+    es_cesion = "SÍ" if any(x in clean_text for x in ["cesion", "cesionario", "cedente"]) else "NO"
+    esta_notif = "SÍ" if any(x in clean_text for x in ["acta de notificacion", "notificado", "diligenciada: si"]) else "NO"
     
-    # --- COLUMNA 2: NOTIFICADO ---
-    patrones_notif = ["acta de notificacion", "diligenciada: si", "entregado al destinatario", "notificado", "notif.", "acuse"]
-    esta_notif = "SÍ" if any(x in clean_text for x in patrones_notif) else "NO"
-    
-    # --- COLUMNAS 3, 4, 5, 6, 7 y 8: TIEMPOS Y ESTADO ---
     fechas = re.findall(r'\d{2}/\d{2}/\d{4}', texto_total)
-    prescripcion, caducidad, meses, ult_fecha, estado = "NO", "NO", 0, "S/D", "ACTIVO"
+    meses, ult_fecha, estado, dictamen = 0, "S/D", "ACTIVO", "Gestión al día."
+    es_prescrito = "NO"
+    es_caduco = "NO"
     
     if fechas:
         lista_d = [datetime.strptime(f, '%d/%m/%Y') for f in fechas if 2010 < int(f[-4:]) <= 2026]
         if lista_d:
             ultima = max(lista_d)
             ult_fecha = ultima.strftime('%d/%m/%Y')
-            
-            # Cálculo de meses a la fecha actual (Enero 2026)
             hoy = datetime(2026, 1, 11)
             meses = (hoy.year - ultima.year) * 12 + (hoy.month - ultima.month)
             
-            # Lógica de Diagnóstico Técnico
             if meses >= 48: 
-                prescripcion = "SÍ"
+                es_prescrito = "SÍ (ALERTA)"
                 estado = "PRESCRITO"
+                dictamen = "🚨 CRÍTICO: Plazo de 4 años vencido."
             elif meses >= 6: 
-                caducidad = "SÍ"
+                es_caduco = "SÍ (ABANDONO)"
                 estado = "CADUCO"
-            else:
-                estado = "ACTIVO"
+                dictamen = f"⚠️ El abogado no ha gestionado en {meses} meses."
 
     return {
-        "Expediente": file.name,
-        "Cesion": es_cesion,
-        "Notificado": esta_notif,
-        "Prescripción": prescripcion,
-        "Caducidad": caducidad,
+        "Dictamen Técnico": dictamen,
+        "Expediente": nombre_archivo,
+        "Estado": estado,
+        "PRESCRIPCIÓN": es_prescrito,
+        "CADUCIDAD": es_caduco,
         "Meses Inactivo": meses,
         "Última Gestión": ult_fecha,
-        "Estado": estado
+        "Cesión": es_cesion,
+        "Notificado": esta_notif
     }
 
-# --- INTERFAZ DE USUARIO ---
+# --- INTERFAZ ---
 st.title("🏛️ RADAR LEGAL")
-st.markdown("### **Auditoría Técnica de Plazos y Gestión**") # NUEVO SUBTÍTULO
+st.markdown(f"**Auditor Responsable:** Luis Humberto Varela Vargas | **Año:** 2026")
+st.divider()
 
-archivos = st.file_uploader("Inyectar Expedientes PDF", type="pdf", accept_multiple_files=True)
+col1, col2 = st.columns(2)
 
-if st.button("EJECUTAR ANÁLISIS"):
-    if archivos:
-        for a in archivos:
-            resultado = analizar_adn_expediente(a)
-            st.session_state['radar_db'].append(resultado)
-        st.rerun()
+with col1:
+    st.subheader("📤 Opción A: Subir Nuevo")
+    archivos_subidos = st.file_uploader("Subir expedientes desde su PC", type="pdf", accept_multiple_files=True)
+    if st.button("AUDITAR SUBIDOS"):
+        if archivos_subidos:
+            for a in archivos_subidos:
+                st.session_state['radar_db'].append(analizar_pdf(a, a.name))
+            st.rerun()
 
+with col2:
+    st.subheader("📂 Opción B: Desde el Sistema")
+    archivos_locales = [f for f in os.listdir('.') if f.lower().endswith('.pdf')]
+    seleccionado = st.selectbox("Expedientes ya cargados:", archivos_locales if archivos_locales else ["No hay archivos"])
+    if st.button("AUDITAR SELECCIONADO"):
+        if seleccionado != "No hay archivos":
+            with open(seleccionado, "rb") as f:
+                st.session_state['radar_db'].append(analizar_pdf(f, seleccionado))
+            st.rerun()
+
+# --- REPORTE ---
 if st.session_state['radar_db']:
+    st.divider()
+    st.header("📋 Reporte de Auditoría Jurídica")
     df = pd.DataFrame(st.session_state['radar_db'])
+    orden = ["Dictamen Técnico", "Expediente", "Estado", "PRESCRIPCIÓN", "CADUCIDAD", "Meses Inactivo", "Última Gestión", "Cesión", "Notificado"]
+    st.table(df[orden])
     
-    # Orden de las 8 columnas solicitado
-    orden = ["Expediente", "Cesion", "Notificado", "Prescripción", "Caducidad", "Meses Inactivo", "Última Gestión", "Estado"]
-    df = df[orden]
-    
-    st.markdown("---")
-    st.markdown("#### 📊 Reporte de Auditoría")
-    
-    # Estilo técnico para la columna Estado
-    def style_estado(v):
-        if v == 'ACTIVO': color = '#28a745' # Verde
-        else: color = '#dc3545' # Rojo
-        return f'color: {color}; font-weight: bold'
-    
-    st.dataframe(df.style.applymap(style_estado, subset=['Estado']), use_container_width=True)
-    
-    if st.button("LIMPIAR RADAR"):
+    if st.button("LIMPIAR TABLA"):
         st.session_state['radar_db'] = []
         st.rerun()
