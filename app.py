@@ -1,54 +1,69 @@
-import streamlit as st
 import pdfplumber
 import openai
 
-st.set_page_config(page_title="Radar Legal CR", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="Radar Legal PRO", page_icon="⚖️", layout="wide")
 
-st.title("⚖️ Radar Legal Final: Costa Rica")
+st.title("⚖️ Radar Legal: Inteligencia Jurídica y Redacción de Recursos")
 st.markdown("---")
 
-# Barra lateral con opciones
 with st.sidebar:
-    st.header("⚙️ Panel de Control")
+    st.header("⚙️ Motor de Análisis")
     api_key = st.text_input("OpenAI API Key", type="password")
-    materia = st.selectbox("Materia del Expediente", ["Cobro Judicial", "Penal", "Laboral"])
-    st.info("Seleccioná la materia para que el Radar aplique la ley correcta.")
+    materia = st.radio("Materia del Caso:", ["Penal", "Cobro Judicial"])
+    nivel = st.select_slider("Profundidad de Redacción:", options=["Básico", "Avanzado", "Casación"])
 
-# Carga de archivo
-archivo = st.file_uploader("Subir Expediente o Documento (PDF)", type=["pdf"])
-
-# NUEVO: Cuadro para que vos escribás preguntas
-pregunta_usuario = st.text_input("¿Qué querés saber específicamente de este documento?")
+archivo = st.file_uploader("Subir Sentencia o Resolución (PDF)", type=["pdf"])
 
 if archivo and api_key:
-    with st.spinner("Procesando bajo legislación de Costa Rica..."):
-        texto_exp = ""
+    with st.spinner("⚖️ Procesando expediente..."):
+        texto_completo = ""
         with pdfplumber.open(archivo) as pdf:
             for page in pdf.pages:
                 t = page.extract_text()
-                if t: texto_exp += t + "\n"
+                if t: texto_completo += t + "\n"
         
-        # Lógica según materia
-        if materia == "Cobro Judicial":
-            instruccion = "Analiza este documento de COBRO JUDICIAL. Busca: Título ejecutivo, monto líquido, intereses moratorios y posible PRESCRIPCIÓN según el Código de Comercio de CR."
-        elif materia == "Penal":
-            instruccion = "Analiza este caso PENAL. Busca: Nulidades (Art. 178 CPP), vicios de prueba (Art. 181 CPP) y tipicidad según el Código Penal de CR."
-        else:
-            instruccion = "Analiza este caso LABORAL. Busca: Debido proceso administrativo y causales de despido injustificado."
-
         client = openai.OpenAI(api_key=api_key)
         
-        # Unimos tu pregunta con la lógica legal
-        prompt_completo = f"{instruccion}\n\nPregunta específica del abogado: {pregunta_usuario}\n\nTexto del documento: {texto_exp[:15000]}"
+        # PASO 1: Análisis Automático
+        st.subheader("🔍 Análisis de Hallazgos y Agravios")
         
-        res = client.chat.completions.create(
+        prompt_analisis = f"Actúa como un experto legal en Costa Rica. Analiza esta sentencia de materia {materia} y detecta 3 errores graves (procesales o de fondo) que sean apelables. Texto: {texto_completo[:15000]}"
+        
+        analisis_res = client.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role": "system", "content": "Sos un consultor jurídico experto en Costa Rica."},
-                      {"role": "user", "content": prompt_completo}]
+            messages=[{"role": "system", "content": "Analista jurídico tico."},
+                      {"role": "user", "content": prompt_analisis}]
         )
+        analisis_texto = analisis_res.choices[0].message.content
+        st.markdown(analisis_texto)
+
+        st.markdown("---")
         
-        st.subheader(f"🔍 Dictamen Radar: {materia}")
-        st.markdown(res.choices[0].message.content)
+        # PASO 2: El Botón Mágico para la Apelación
+        st.subheader("📝 Generador de Documentos")
+        if st.button(f"Generar Recurso de Apelación ({materia})"):
+            with st.spinner("Redactando recurso formal..."):
+                prompt_apelacion = f"""
+                Redacta un RECURSO DE APELACIÓN formal para los tribunales de Costa Rica basado en esta materia: {materia}.
+                USA ESTA ESTRUCTURA:
+                1. Encabezamiento (Señor Juez, etc).
+                2. Relación de Hechos.
+                3. AGRAVIOS: Basate en estos hallazgos: {analisis_texto}.
+                4. FUNDAMENTACIÓN JURÍDICA: Cita artículos del CPP (si es penal) o Código de Comercio/Ley de Cobro (si es cobro).
+                5. PETITORIA: Solicita la nulidad o revocatoria.
+                
+                Documento base: {texto_completo[:10000]}
+                """
+                
+                apelacion_res = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "system", "content": "Sos un abogado litigante de élite en Costa Rica. Redactás con lenguaje técnico, formal y contundente."},
+                              {"role": "user", "content": prompt_apelacion}]
+                )
+                
+                st.success("✅ Recurso Generado")
+                st.text_area("Borrador de la Apelación (Podés copiar y pegar):", 
+                             value=apelacion_res.choices[0].message.content, height=600)
 
 elif not api_key and archivo:
-    st.warning("⚠️ Ingresá la API Key en la barra lateral para iniciar el análisis.")
+    st.warning("⚠️ Ingresá la API Key para activar el motor de redacción.")
