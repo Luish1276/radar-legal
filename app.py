@@ -2,100 +2,105 @@ import streamlit as st
 import pdfplumber
 import openai
 
-# 1. CONFIGURACIÓN ESTRUCTURAL
 st.set_page_config(page_title="Radar Legal PRO", page_icon="⚖️", layout="wide")
 
-st.title("⚖️ Radar Legal: Inteligencia Jurídica de Alto Nivel")
+st.title("⚖️ Radar Legal: Especialización Jurídica Costa Rica")
 st.markdown("---")
 
-# 2. BARRA LATERAL (Aquí está tu Slider de vuelta)
 with st.sidebar:
-    st.header("⚙️ Configuración de Élite")
+    st.header("⚙️ Selección de Programa")
     api_key = st.text_input("OpenAI API Key", type="password")
-    
-    # Separación de programas
-    materia = st.radio("Seleccione el Módulo:", ["Cobro Judicial", "Radar Penal"])
+    materia = st.radio("Módulo Activo:", ["Cobro Judicial", "Radar Penal"])
     
     st.divider()
-    
-    # EL SLIDER DE NIVEL PROFESIONAL QUE TE GUSTABA
-    nivel_perfil = st.select_slider(
-        "Nivel de Especialidad del Analista:",
-        options=["Abogado Senior", "Especialista Avanzado", "Dr. en Derecho con Alta Experiencia"]
-    )
-    
-    st.divider()
-    st.info(f"Módulo: {materia}\nPerfil: {nivel_perfil}")
+    if materia == "Radar Penal":
+        nivel_penal = st.select_slider(
+            "Perfil del Analista Penal:",
+            options=["Consultor Senior", "Especialista en Casación", "Dr. en Derecho Penal"]
+        )
+    else:
+        st.info("📌 Módulo Cobro: Análisis de Prescripción, Caducidad y Títulos Ejecutivos.")
 
-# 3. CARGA DE ARCHIVOS
-archivo = st.file_uploader(f"Subir expediente para {materia} (PDF)", type=["pdf"])
+archivo = st.file_uploader(f"Subir Expediente para {materia}", type=["pdf"])
 
 if archivo and api_key:
-    with st.spinner(f"🕵️ El {nivel_perfil} está analizando el caso..."):
+    with st.spinner("🕵️ Analizando expediente con profundidad sustantiva..."):
         texto_completo = ""
-        try:
-            with pdfplumber.open(archivo) as pdf:
-                for page in pdf.pages:
-                    t = page.extract_text()
-                    if t: texto_completo += t + "\n"
-            
-            client = openai.OpenAI(api_key=api_key)
+        with pdfplumber.open(archivo) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t: texto_completo += t + "\n"
+        
+        client = openai.OpenAI(api_key=api_key)
 
-            # --- LÓGICA DE ALTO IMPACTO SEPARADA ---
-            if materia == "Cobro Judicial":
-                instruccion = f"""
-                Actuá como un {nivel_perfil} experto en Cobro Judicial de Costa Rica.
-                Analizá con lupa:
-                1. PRESCRIPCIÓN: Revisá vencimiento de títulos valores (Pagaré, Letra, Factura).
-                2. CADUCIDAD: Revisá inactividad procesal para solicitar el archivo del expediente.
-                3. TÍTULO: ¿Es idóneo según la Ley de Cobro Judicial?
-                4. ESTRATEGIA: ¿Qué excepción es la más contundente?
-                """
-            else:
-                instruccion = f"""
-                Actuá como un {nivel_perfil} con amplia experiencia en Derecho Penal costarricense.
-                Analizá profundamente:
-                1. NULIDADES ABSOLUTAS: Buscá violaciones al debido proceso (Art. 178 CPP).
-                2. VICIOS DE PRUEBA: Identificá prueba espuria o ilegalmente obtenida (Art. 181 CPP).
-                3. MOTIVACIÓN: ¿La sentencia tiene vicios de fundamentación intelectual?
-                4. TIPICIDAD Y DOGMÁTICA: ¿Calza el hecho con la teoría del delito?
-                """
+        # --- MOTOR 1: COBRO JUDICIAL (Sin Slider, Enfoque Técnico-Legal) ---
+        if materia == "Cobro Judicial":
+            instruccion = """
+            Actúa como un Juez Especializado en Cobro Judicial de Costa Rica.
+            Realiza un ANÁLISIS SUSTANTIVO del expediente:
+            1. TÍTULO: Identifica si es Pagaré, Letra o Factura. Verifica requisitos del Código de Comercio.
+            2. CRONOLOGÍA DE PRESCRIPCIÓN: Extrae fecha de vencimiento, fecha de presentación de demanda y fechas de notificaciones.
+            3. INTERRUPCIÓN: ¿Hubo gestiones cobratorias válidas? ¿Hay reconocimiento de deuda?
+            4. CADUCIDAD: Revisa si el expediente estuvo paralizado por más de 3 meses (Art 55 Ley Cobro).
+            5. CONCLUSIÓN: Determina con certeza si la obligación es exigible o si procede la excepción.
+            """
+            perfil_sys = "Experto en Derecho Mercantil y Procesal Civil de Costa Rica."
 
-            # EJECUCIÓN DEL ANÁLISIS
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": f"Sos un {nivel_perfil} en Costa Rica. Tu análisis es técnico, profundo y crítico. No des resúmenes básicos."},
-                    {"role": "user", "content": f"{instruccion}\n\nDOCUMENTO:\n{texto_completo[:15000]}"}
-                ],
-                temperature=0.2
-            )
+        # --- MOTOR 2: RADAR PENAL (Con Slider de Experiencia) ---
+        else:
+            instruccion = f"""
+            Actúa como un {nivel_penal} en Costa Rica.
+            Analiza profundamente la sentencia/expediente:
+            1. NULIDADES ABSOLUTAS: Violaciones al Debido Proceso y Art. 178 CPP.
+            2. PRUEBA ESPURIA: Vicios en la cadena de custodia o obtención (Art. 181 CPP).
+            3. FUNDAMENTACIÓN: ¿Hay falta de logicidad o motivación en la sentencia?
+            """
+            perfil_sys = f"Sos un {nivel_penal} experto en casación y garantías procesales."
 
-            analisis_texto = response.choices[0].message.content
-            st.subheader(f"📊 Dictamen del {nivel_perfil} ({materia})")
-            st.markdown(analisis_texto)
+        res_analisis = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": perfil_sys},
+                {"role": "user", "content": f"{instruccion}\n\nEXPEDIENTE:\n{texto_completo[:18000]}"}
+            ],
+            temperature=0.2
+        )
+        analisis_texto = res_analisis.choices[0].message.content
+        st.subheader(f"📊 Dictamen Especializado: {materia}")
+        st.markdown(analisis_texto)
 
-            st.divider()
+        st.divider()
 
-            # 4. GENERACIÓN DE DOCUMENTOS (Apelaciones o Excepciones)
-            st.subheader("📝 Generación de Escritos de Alto Impacto")
-            
-            btn_txt = "🛡️ Redactar Excepción de Prescripción" if materia == "Cobro Judicial" else "🚩 Redactar Recurso de Apelación"
-            
-            if st.button(btn_txt):
-                with st.spinner(f"El {nivel_perfil} está redactando el escrito..."):
+        # --- GENERADOR DE DOCUMENTOS ROBUSTOS ---
+        st.subheader("📝 Generación de Piezas Procesales")
+        
+        if materia == "Cobro Judicial":
+            if st.button("🛡️ Redactar Excepción de Prescripción y Caducidad"):
+                with st.spinner("Redactando escrito de fondo..."):
+                    prompt_doc = f"""
+                    Redacta una EXCEPCIÓN DE PRESCRIPCIÓN Y CADUCIDAD de ALTO IMPACTO para los Juzgados de Cobro de Costa Rica.
+                    ESTRUCTURA OBLIGATORIA:
+                    - ENCABEZADO formal.
+                    - HECHOS: Detalla las fechas encontradas en el análisis.
+                    - FUNDAMENTOS: Cita el Código de Comercio (Art 968 y ss), Ley de Cobro Judicial y jurisprudencia de la Sala Primera.
+                    - PETITORIA: Solicita el levantamiento de embargos y el archivo del expediente.
+                    BASADO EN: {analisis_texto}
+                    """
                     res_doc = client.chat.completions.create(
                         model="gpt-4o",
-                        messages=[
-                            {"role": "system", "content": f"Sos un {nivel_perfil} redactando para tribunales de Costa Rica. Usá lenguaje jurídico formal y contundente."},
-                            {"role": "user", "content": f"Redactá un {btn_txt} basado en este análisis técnico: {analisis_texto}"}
-                        ]
+                        messages=[{"role": "user", "content": prompt_doc}]
                     )
-                    st.success("✅ Escrito jurídico generado.")
-                    st.text_area("Documento listo para copiar:", value=res_doc.choices[0].message.content, height=600)
-
-        except Exception as e:
-            st.error(f"Error técnico en el motor: {e}")
+                    st.text_area("Borrador del Escrito:", value=res_doc.choices[0].message.content, height=600)
+        
+        else:
+            if st.button(f"🚩 Redactar Recurso (Nivel {nivel_penal})"):
+                with st.spinner("Redactando recurso de fondo..."):
+                    prompt_doc = f"Redacta un RECURSO DE APELACIÓN O CASACIÓN técnico y contundente basado en estos agravios: {analisis_texto}. Cita el CPP de Costa Rica."
+                    res_doc = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "user", "content": prompt_doc}]
+                    )
+                    st.text_area("Borrador del Recurso:", value=res_doc.choices[0].message.content, height=600)
 
 elif not api_key and archivo:
-    st.warning("⚠️ El motor de alta fidelidad requiere la API Key.")
+    st.warning("⚠️ Ingresa la API Key para activar el Radar.")
