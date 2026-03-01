@@ -4,7 +4,7 @@ import openai
 
 st.set_page_config(page_title="Radar Legal PRO", page_icon="⚖️", layout="wide")
 
-st.title("⚖️ Radar Legal: Especialización Jurídica Costa Rica")
+st.title("⚖️ Radar Legal: Inteligencia Jurídica Especializada")
 st.markdown("---")
 
 with st.sidebar:
@@ -19,12 +19,12 @@ with st.sidebar:
             options=["Consultor Senior", "Especialista en Casación", "Dr. en Derecho Penal"]
         )
     else:
-        st.info("📌 Módulo Cobro: Análisis de Prescripción, Caducidad y Títulos Ejecutivos.")
+        st.info("📌 Módulo Cobro: Análisis de Prescripción, Caducidad y Validez de Notificaciones (Ley 8687).")
 
 archivo = st.file_uploader(f"Subir Expediente para {materia}", type=["pdf"])
 
 if archivo and api_key:
-    with st.spinner("🕵️ Analizando expediente con profundidad sustantiva..."):
+    with st.spinner("🕵️ Realizando escaneo sustantivo y procesal..."):
         texto_completo = ""
         with pdfplumber.open(archivo) as pdf:
             for page in pdf.pages:
@@ -33,29 +33,23 @@ if archivo and api_key:
         
         client = openai.OpenAI(api_key=api_key)
 
-        # --- MOTOR 1: COBRO JUDICIAL (Sin Slider, Enfoque Técnico-Legal) ---
         if materia == "Cobro Judicial":
             instruccion = """
-            Actúa como un Juez Especializado en Cobro Judicial de Costa Rica.
-            Realiza un ANÁLISIS SUSTANTIVO del expediente:
-            1. TÍTULO: Identifica si es Pagaré, Letra o Factura. Verifica requisitos del Código de Comercio.
-            2. CRONOLOGÍA DE PRESCRIPCIÓN: Extrae fecha de vencimiento, fecha de presentación de demanda y fechas de notificaciones.
-            3. INTERRUPCIÓN: ¿Hubo gestiones cobratorias válidas? ¿Hay reconocimiento de deuda?
-            4. CADUCIDAD: Revisa si el expediente estuvo paralizado por más de 3 meses (Art 55 Ley Cobro).
-            5. CONCLUSIÓN: Determina con certeza si la obligación es exigible o si procede la excepción.
+            Actúa como un Juez de Cobro de Costa Rica con enfoque en Debido Proceso.
+            Realiza un ANÁLISIS SUSTANTIVO Y PROCESAL:
+            1. TÍTULO: Requisitos de ejecutoriedad (Código de Comercio).
+            2. PRESCRIPCIÓN Y CADUCIDAD: Fechas críticas y Art. 55 Ley Cobro.
+            3. CONTROL DE NOTIFICACIÓN (CRÍTICO): 
+               - Analiza si la notificación cumple con la Ley de Notificaciones Judiciales (Ley 8687).
+               - Verifica si el acta de notificación identifica correctamente al receptor (Art. 7).
+               - Revisa si se respetó el domicilio contractual o si hubo vicio en la notificación automática (Art. 11).
+               - Evalúa si el plazo de emplazamiento del CPC fue respetado antes de cualquier resolución de rebeldía o apremio.
+            4. DEFENSAS PROCESALES: Identifica nulidades por falta de emplazamiento válido.
             """
-            perfil_sys = "Experto en Derecho Mercantil y Procesal Civil de Costa Rica."
-
-        # --- MOTOR 2: RADAR PENAL (Con Slider de Experiencia) ---
+            perfil_sys = "Experto en Procesal Civil y Ley de Notificaciones de Costa Rica."
         else:
-            instruccion = f"""
-            Actúa como un {nivel_penal} en Costa Rica.
-            Analiza profundamente la sentencia/expediente:
-            1. NULIDADES ABSOLUTAS: Violaciones al Debido Proceso y Art. 178 CPP.
-            2. PRUEBA ESPURIA: Vicios en la cadena de custodia o obtención (Art. 181 CPP).
-            3. FUNDAMENTACIÓN: ¿Hay falta de logicidad o motivación en la sentencia?
-            """
-            perfil_sys = f"Sos un {nivel_penal} experto en casación y garantías procesales."
+            instruccion = f"Actúa como un {nivel_penal}. Analiza nulidades Art. 178 y 181 CPP."
+            perfil_sys = f"Sos un {nivel_penal} experto en casación."
 
         res_analisis = client.chat.completions.create(
             model="gpt-4o",
@@ -71,36 +65,27 @@ if archivo and api_key:
 
         st.divider()
 
-        # --- GENERADOR DE DOCUMENTOS ROBUSTOS ---
+        # GENERADOR DE DOCUMENTOS (Ahora con Nulidad de Notificación)
         st.subheader("📝 Generación de Piezas Procesales")
         
         if materia == "Cobro Judicial":
-            if st.button("🛡️ Redactar Excepción de Prescripción y Caducidad"):
-                with st.spinner("Redactando escrito de fondo..."):
-                    prompt_doc = f"""
-                    Redacta una EXCEPCIÓN DE PRESCRIPCIÓN Y CADUCIDAD de ALTO IMPACTO para los Juzgados de Cobro de Costa Rica.
-                    ESTRUCTURA OBLIGATORIA:
-                    - ENCABEZADO formal.
-                    - HECHOS: Detalla las fechas encontradas en el análisis.
-                    - FUNDAMENTOS: Cita el Código de Comercio (Art 968 y ss), Ley de Cobro Judicial y jurisprudencia de la Sala Primera.
-                    - PETITORIA: Solicita el levantamiento de embargos y el archivo del expediente.
-                    BASADO EN: {analisis_texto}
-                    """
-                    res_doc = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": prompt_doc}]
-                    )
-                    st.text_area("Borrador del Escrito:", value=res_doc.choices[0].message.content, height=600)
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🛡️ Redactar Excepción de Prescripción"):
+                    prompt_doc = f"Redacta una EXCEPCIÓN DE PRESCRIPCIÓN robusta basada en: {analisis_texto}. Cita Art. 968 C.Comercio."
+                    res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt_doc}])
+                    st.text_area("Borrador:", value=res.choices[0].message.content, height=400)
+            with col2:
+                if st.button("🚫 Redactar Incidente de Nulidad de Notificación"):
+                    prompt_doc = f"Redacta un INCIDENTE DE NULIDAD DE NOTIFICACIÓN bajo la Ley 8687 y el CPC de Costa Rica, basado en los vicios detectados aquí: {analisis_texto}."
+                    res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt_doc}])
+                    st.text_area("Borrador Nulidad:", value=res.choices[0].message.content, height=400)
         
         else:
-            if st.button(f"🚩 Redactar Recurso (Nivel {nivel_penal})"):
-                with st.spinner("Redactando recurso de fondo..."):
-                    prompt_doc = f"Redacta un RECURSO DE APELACIÓN O CASACIÓN técnico y contundente basado en estos agravios: {analisis_texto}. Cita el CPP de Costa Rica."
-                    res_doc = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": prompt_doc}]
-                    )
-                    st.text_area("Borrador del Recurso:", value=res_doc.choices[0].message.content, height=600)
+            if st.button(f"🚩 Redactar Recurso ({nivel_penal})"):
+                prompt_doc = f"Redacta un Recurso de Apelación penal basado en: {analisis_texto}"
+                res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt_doc}])
+                st.text_area("Borrador Recurso:", value=res.choices[0].message.content, height=500)
 
 elif not api_key and archivo:
     st.warning("⚠️ Ingresa la API Key para activar el Radar.")
